@@ -1,0 +1,100 @@
+# VERTIX — PSP Emulator for Android
+
+<p align="center">
+  <img src="app/src/main/res/drawable/ic_vertix_logo.jpg" alt="VERTIX Logo" width="128" style="border-radius: 24px;" />
+</p>
+
+<p align="center">
+  <strong>Tu biblioteca PSP, en la palma de tu mano.</strong><br>
+  Emulador de PlayStation Portable de alto rendimiento para Android con interfaz moderna, controles táctiles personalizables y arquitectura nativa.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Android_API_24+-blue.svg" alt="Platform" />
+  <img src="https://img.shields.io/badge/Language-Kotlin-purple.svg" alt="Kotlin" />
+  <img src="https://img.shields.io/badge/UI-Jetpack_Compose_M3-00E5FF.svg" alt="Compose" />
+  <img src="https://img.shields.io/badge/Architecture-MVVM_%2B_JNI_Ready-7B3DFF.svg" alt="Architecture" />
+</p>
+
+---
+
+## Características Principales
+
+* **Identidad Visual Propia**: Sistema de diseño exclusivo sin plantillas genéricas. Paleta cromática oscura cinemática con tokens violeta (`#7B3DFF`) y cian (`#00E5FF`).
+* **Arranque Profesional Limpio**: Abre sin catálogos falsos ni juegos precargados ficticios; permite importar tus propios archivos legítimos `.iso`, `.cso` y `.pbp`.
+* **Importación Real desde Almacenamiento**: Integración completa con el **Storage Access Framework (SAF)** de Android para seleccionar archivos directamente de la memoria del teléfono y persistirlos localmente.
+* **Biblioteca con Vista Dual**: Conmutador fluido entre vista de cuadrícula (proporción 3:4 con portadas de alta definición) y vista de lista con identificadores técnicos y tamaños.
+* **Controles Virtuales Táctiles**:
+  * Cruceta direccional (D-Pad) vectorial con feedback visual luminoso.
+  * Stick analógico virtual con arrastre dinámico y retorno elástico.
+  * Botones de acción PlayStation (△, ○, ✕, □) con soporte multitáctil y respuesta háptica.
+  * Gatillos superiores L y R.
+  * Menú rápido en juego para guardar y cargar partidas (*Savestates*).
+* **Ajustes de Renderizado y Audio**:
+  * Resoluciones internas de 1x (PSP nativo) a 4x (4K).
+  * Backend gráfico (Vulkan 1.3 / OpenGL ES 3.2).
+  * Control de opacidad y escala de botones táctiles en tiempo real.
+  * Ajustes de búfer de audio de baja latencia con AAudio.
+* **Telemetría de Rendimiento**:
+  * Monitorización en tiempo real de FPS, tiempo de fotograma, uso de memoria JVM y núcleos del procesador.
+  * Gráfica fluida de fotogramas dibujada en Canvas.
+  * Visor de registros de depuración categorizados por subsistema.
+
+---
+
+## Estructura del Proyecto
+
+```
+VERTIX/
+├── app/
+│   ├── src/main/
+│   │   ├── AndroidManifest.xml
+│   │   ├── java/com/example/
+│   │   │   ├── MainActivity.kt             # Punto de entrada, SAF picker y navegación
+│   │   │   ├── engine/
+│   │   │   │   └── VertixEmulatorEngine.kt # Contrato JNI para el núcleo C++
+│   │   │   ├── model/
+│   │   │   │   └── VertixModels.kt         # Modelos de datos (PspGame, Settings, etc.)
+│   │   │   ├── storage/
+│   │   │   │   └── GameRepository.kt       # Persistencia local JSON de juegos importados
+│   │   │   ├── ui/
+│   │   │   │   ├── components/             # Botones, tarjetas y logotipo VERTIX
+│   │   │   │   ├── screens/                # Todas las pantallas del emulador
+│   │   │   │   └── theme/                  # Tokens de color, tipografía y tema
+│   │   │   └── viewmodel/
+│   │   │       └── VertixViewModel.kt      # ViewModel reactivo con StateFlow
+│   │   └── res/
+│   │       ├── font/                       # Fuentes locales Orbitron e Inter
+│   │       └── drawable/                   # Arte de carátulas e icono adaptativo
+├── DOCUMENTACION.md                        # Documentación técnica exhaustiva
+└── build.gradle.kts                        # Configuración de compilación Gradle
+```
+
+---
+
+## Compilación y Ejecución
+
+Para compilar el proyecto en Android Studio o por terminal:
+
+```bash
+# Compilar APK en modo depuración
+gradle :app:assembleDebug
+
+# Ejecutar tests
+gradle :app:testDebugUnitTest
+```
+
+El APK compilado se genera en:
+`app/build/outputs/apk/debug/app-debug.apk`
+
+---
+
+## Integración con el Motor C++ (PPSSPP Core)
+
+El proyecto incluye la interfaz JNI `NativeVertixCore` lista para vincular con cualquier biblioteca nativa `libvertix_core.so` compilada mediante el NDK de Android. Consulta el archivo [DOCUMENTACION.md](DOCUMENTACION.md) para ver la especificación completa de las funciones C++ requeridas y la guía de integración.
+
+---
+
+## Licencia
+
+Proyecto VERTIX — Creado para desarrollo de software y emulación de videojuegos en Android.
