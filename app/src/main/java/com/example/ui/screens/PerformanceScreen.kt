@@ -3,7 +3,7 @@ package com.example.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.Canvas
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,12 +22,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,13 +38,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,22 +52,27 @@ import com.example.ui.components.FilterChipTab
 import com.example.ui.theme.OrbitronFontFamily
 import com.example.ui.theme.VertixBg
 import com.example.ui.theme.VertixBorder
-import com.example.ui.theme.VertixPrimary
 import com.example.ui.theme.VertixSecondary
 import com.example.ui.theme.VertixSurface
-import com.example.ui.theme.VertixSurfaceSecondary
-import com.example.ui.theme.VertixSurfaceTertiary
 import com.example.ui.theme.VertixTextPrimary
 import com.example.ui.theme.VertixTextSecondary
 
+/**
+ * Diagnóstico REAL: métricas medidas del dispositivo (memoria del proceso,
+ * núcleos de CPU) y registro de eventos de la app.
+ *
+ * El FPS y la velocidad de emulación durante el juego los mide y muestra el
+ * propio núcleo PPSSPP con su HUD nativo (menú del emulador dentro del juego),
+ * porque son los únicos números verídicos del emulador.
+ */
 @Composable
 fun PerformanceScreen(
   metrics: PerformanceMetrics,
-  fpsHistory: List<Float>,
   logs: List<EmulationLogEntry>,
   selectedCategory: LogCategory,
   onSelectCategory: (LogCategory) -> Unit,
   onClearLogs: () -> Unit,
+  onRefresh: () -> Unit,
   onBackClick: () -> Unit
 ) {
   val context = LocalContext.current
@@ -110,12 +112,22 @@ fun PerformanceScreen(
         )
       }
 
-      Icon(
-        imageVector = Icons.Default.Speed,
-        contentDescription = null,
-        tint = VertixSecondary,
-        modifier = Modifier.size(24.dp)
-      )
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onRefresh, modifier = Modifier.size(36.dp)) {
+          Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = "Refrescar métricas",
+            tint = VertixSecondary,
+            modifier = Modifier.size(20.dp)
+          )
+        }
+        Icon(
+          imageVector = Icons.Default.Speed,
+          contentDescription = null,
+          tint = VertixSecondary,
+          modifier = Modifier.size(24.dp)
+        )
+      }
     }
 
     LazyColumn(
@@ -125,7 +137,7 @@ fun PerformanceScreen(
       contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
       verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-      // Main FPS Card with Live Timeline Chart
+      // Dispositivo — valores reales medidos
       item {
         Card(
           modifier = Modifier
@@ -135,106 +147,101 @@ fun PerformanceScreen(
           colors = CardDefaults.cardColors(containerColor = VertixSurface)
         ) {
           Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+              text = "Dispositivo (medido)",
+              fontSize = 12.sp,
+              color = VertixTextSecondary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
               modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
+              horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-              Column {
-                Text(text = "FPS", fontSize = 11.sp, color = VertixTextSecondary)
-                Row(verticalAlignment = Alignment.Bottom) {
-                  Text(
-                    text = "${metrics.fps}",
-                    fontFamily = OrbitronFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 28.sp,
-                    color = VertixTextPrimary
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text(
-                    text = "● Estable",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF35D6A0),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                  )
-                }
-              }
-
-              Column(horizontalAlignment = Alignment.End) {
-                Text(
-                  text = "Objetivo: ${metrics.targetFps} FPS",
-                  fontSize = 11.sp,
-                  color = VertixTextSecondary
-                )
-                Text(
-                  text = "Velocidad: ${(metrics.speedPercent * 10).toInt() / 10f}%",
-                  fontSize = 11.sp,
-                  color = VertixSecondary
-                )
-              }
+              MetricTile(
+                label = "RAM del proceso",
+                value = "${metrics.ramUsedMb} MB",
+                subtext = "de ${metrics.ramTotalMb} MB disponibles",
+                modifier = Modifier.weight(1f)
+              )
+              MetricTile(
+                label = "Núcleos CPU",
+                value = "${metrics.availableCores}",
+                subtext = Build.HARDWARE.ifBlank { "SoC del dispositivo" },
+                modifier = Modifier.weight(1f)
+              )
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Canvas Live FPS Curve
-            Box(
-              modifier = Modifier
-                .fillMaxWidth()
-                .height(110.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(VertixBg)
-                .border(0.5.dp, VertixBorder, RoundedCornerShape(8.dp))
-                .padding(8.dp)
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-              FpsTimelineCanvas(history = fpsHistory)
+              MetricTile(
+                label = "Juegos en biblioteca",
+                value = "${metrics.libraryGames}",
+                subtext = "copias locales verificadas",
+                modifier = Modifier.weight(1f)
+              )
+              MetricTile(
+                label = "Android",
+                value = "API ${Build.VERSION.SDK_INT}",
+                subtext = Build.MODEL.ifBlank { "Modelo desconocido" },
+                modifier = Modifier.weight(1f)
+              )
             }
           }
         }
       }
 
-      // Telemetry Metric Tiles (CPU, RAM, Temp, FrameTime)
+      // Núcleo de emulación — información real
       item {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Card(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, VertixBorder, RoundedCornerShape(16.dp)),
+          colors = CardDefaults.cardColors(
+            containerColor = Color.Transparent,
+            contentColor = VertixTextPrimary
+          )
         ) {
-          MetricTile(
-            label = "Uso de CPU",
-            value = "${metrics.cpuUsage}%",
-            subtext = "ARM64 4 núcleos",
-            modifier = Modifier.weight(1f)
-          )
-          MetricTile(
-            label = "Uso de RAM",
-            value = metrics.ramUsage,
-            subtext = "Memoria del proceso",
-            modifier = Modifier.weight(1f)
-          )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-          MetricTile(
-            label = "Temperatura",
-            value = "${metrics.temperatureC}°C",
-            subtext = "SoC Óptimo",
-            modifier = Modifier.weight(1f)
-          )
-          MetricTile(
-            label = "Tiempo de frame",
-            value = "${metrics.frameTimeMs} ms",
-            subtext = metrics.renderer,
-            modifier = Modifier.weight(1f)
-          )
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .background(
+                Brush.horizontalGradient(listOf(Color(0x1400E5FF), Color(0x147B3DFF)))
+              )
+          ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+              Text(
+                text = "Núcleo de emulación",
+                fontSize = 12.sp,
+                color = VertixTextSecondary
+              )
+              Spacer(modifier = Modifier.height(6.dp))
+              Text(
+                text = "PPSSPP v1.19.3",
+                fontFamily = OrbitronFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = VertixTextPrimary
+              )
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text = "Librería nativa libppsspp_jni.so (C++) compilada desde la " +
+                  "fuente oficial de PPSSPP. Los FPS, la velocidad de emulación y " +
+                  "el renderizado se miden dentro del propio emulador: durante el " +
+                  "juego, abre el menú del emulador (botón atrás) para ver las " +
+                  "estadísticas reales.",
+                fontSize = 11.sp,
+                color = VertixTextSecondary,
+                lineHeight = 16.sp
+              )
+            }
+          }
         }
       }
 
-      // Emulation Log Header & Controls
+      // Registro — Header & Controls
       item {
         Row(
           modifier = Modifier
@@ -244,7 +251,7 @@ fun PerformanceScreen(
           verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
-            text = "Registro de emulación",
+            text = "Registro de eventos",
             fontFamily = OrbitronFontFamily,
             fontWeight = FontWeight.Bold,
             fontSize = 15.sp,
@@ -273,13 +280,13 @@ fun PerformanceScreen(
         }
       }
 
-      // Log Category Filter Chips
+      // Filtros del registro
       item {
         LazyRow(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-          items(LogCategory.values()) { category ->
+          items(LogCategory.entries) { category ->
             FilterChipTab(
               text = category.label,
               selected = selectedCategory == category,
@@ -289,7 +296,7 @@ fun PerformanceScreen(
         }
       }
 
-      // Log Entries
+      // Entradas del registro
       items(filteredLogs) { log ->
         Card(
           modifier = Modifier
@@ -307,21 +314,21 @@ fun PerformanceScreen(
             Text(
               text = log.timestamp,
               fontSize = 11.sp,
-              fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+              fontFamily = FontFamily.Monospace,
               color = VertixTextSecondary,
               modifier = Modifier.width(78.dp)
             )
             Text(
               text = "[${log.category.name}]",
               fontSize = 11.sp,
-              fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+              fontFamily = FontFamily.Monospace,
               color = VertixSecondary,
               modifier = Modifier.width(82.dp)
             )
             Text(
               text = log.message,
               fontSize = 11.sp,
-              fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+              fontFamily = FontFamily.Monospace,
               color = VertixTextPrimary,
               modifier = Modifier.weight(1f)
             )
@@ -329,57 +336,6 @@ fun PerformanceScreen(
         }
       }
     }
-  }
-}
-
-@Composable
-fun FpsTimelineCanvas(history: List<Float>) {
-  Canvas(modifier = Modifier.fillMaxSize()) {
-    if (history.size < 2) return@Canvas
-    val w = size.width
-    val h = size.height
-    val minFps = 45f
-    val maxFps = 65f
-
-    val stepX = w / (history.size - 1)
-    val points = history.mapIndexed { index, fps ->
-      val normalizedY = (fps.coerceIn(minFps, maxFps) - minFps) / (maxFps - minFps)
-      Offset(index * stepX, h - (normalizedY * h))
-    }
-
-    // Path
-    val path = Path().apply {
-      moveTo(points.first().x, points.first().y)
-      for (i in 1 until points.size) {
-        lineTo(points[i].x, points[i].y)
-      }
-    }
-
-    // Fill under path
-    val fillPath = Path().apply {
-      addPath(path)
-      lineTo(points.last().x, h)
-      lineTo(points.first().x, h)
-      close()
-    }
-
-    drawPath(
-      path = fillPath,
-      brush = Brush.verticalGradient(
-        colors = listOf(Color(0x3500E5FF), Color.Transparent),
-        startY = 0f,
-        endY = h
-      )
-    )
-
-    // Stroke
-    drawPath(
-      path = path,
-      brush = Brush.horizontalGradient(
-        colors = listOf(Color(0xFF7B3DFF), Color(0xFF00E5FF))
-      ),
-      style = Stroke(width = 3.dp.toPx())
-    )
   }
 }
 

@@ -17,7 +17,12 @@ data class PspGame(
   val rating: String,
   val format: String,
   val size: String,
-  @DrawableRes val coverResId: Int,
+  /** Recurso legacy (ya no se usan portadas falsas). 0 = sin recurso. */
+  @DrawableRes val coverResId: Int = 0,
+  /** Ruta de la portada real (ICON0.PNG extraída del ISO/PBP). */
+  val coverPath: String? = null,
+  /** Ruta local real del archivo de juego (copia privada en filesDir/games). */
+  val localPath: String? = null,
   val filePath: String,
   val status: CompatibilityStatus,
   val lastPlayed: String,
@@ -33,45 +38,14 @@ data class SaveStateSlot(
   val slotNumber: Int,
   val title: String,
   val timestamp: String,
-  @DrawableRes val thumbnailResId: Int,
-  val version: String = "VERTIX v1.0.4"
-)
-
-data class GraphicSettings(
-  val renderResolution: String = "2x (1080p)",
-  val renderingBackend: String = "Vulkan (recomendado)",
-  val textureFiltering: Boolean = true,
-  val antialiasing: Boolean = true,
-  val postProcessing: Boolean = false,
-  val fpsLimit: String = "60 FPS",
-  val vsync: Boolean = true,
-  val aspectRatio: String = "16:9 Estirado"
-)
-
-data class AudioSettings(
-  val enabled: Boolean = true,
-  val volume: Float = 0.85f,
-  val latency: String = "Baja (12ms)",
-  val audioSync: Boolean = true
-)
-
-data class ControlSettings(
-  val touchEnabled: Boolean = true,
-  val opacity: Float = 0.65f,
-  val buttonScale: Float = 1.0f,
-  val hapticFeedback: Boolean = true,
-  val hideOnGamepad: Boolean = true
+  val version: String = "PPSSPP v1.19.3"
 )
 
 data class PerformanceMetrics(
-  val fps: Float = 58.4f,
-  val targetFps: Int = 60,
-  val speedPercent: Float = 100.2f,
-  val frameTimeMs: Float = 16.9f,
-  val cpuUsage: Int = 32,
-  val ramUsage: String = "418 MB / 1.8 GB",
-  val temperatureC: Int = 36,
-  val renderer: String = "Vulkan 1.3"
+  val ramUsedMb: Long = 0,
+  val ramTotalMb: Long = 0,
+  val availableCores: Int = 0,
+  val libraryGames: Int = 0
 )
 
 enum class LogCategory(val label: String) {

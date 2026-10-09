@@ -1,6 +1,20 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
+import android.graphics.BitmapFactory
+
+import androidx.compose.foundation.Image
+
+import androidx.compose.ui.graphics.asImageBitmap
+
+import androidx.compose.ui.layout.ContentScale
+
+import androidx.compose.ui.unit.sp
+
+import androidx.compose.runtime.remember
+
+import com.example.ui.theme.VertixTextSecondary
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,7 +54,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.model.CompatibilityStatus
 import com.example.ui.theme.OrbitronFontFamily
 import com.example.ui.theme.VertixBg
@@ -53,7 +66,6 @@ import com.example.ui.theme.VertixSurfaceSecondary
 import com.example.ui.theme.VertixSurfaceTertiary
 import com.example.ui.theme.VertixTextDisabled
 import com.example.ui.theme.VertixTextPrimary
-import com.example.ui.theme.VertixTextSecondary
 
 @Composable
 fun VertixGeometricIcon(
@@ -485,4 +497,47 @@ fun TechnicalErrorDialog(
       }
     }
   )
+}
+
+// =============================================================================
+// GameCoverImage — portada REAL del juego.
+// -----------------------------------------------------------------------------
+// Muestra el ICON0.PNG extraído del propio archivo del juego (ISO9660/PBP)
+// cuando está disponible; en caso contrario dibuja un marcador neutral con
+// el título del juego. Nunca muestra portadas inventadas.
+// =============================================================================
+@Composable
+fun GameCoverImage(
+  game: com.example.model.PspGame,
+  contentDescription: String?,
+  modifier: Modifier = Modifier,
+  contentScale: ContentScale = ContentScale.Crop
+) {
+  val bitmap = remember(game.coverPath) {
+    game.coverPath?.let { path ->
+      try { BitmapFactory.decodeFile(path) } catch (_: Exception) { null }
+    }
+  }
+  if (bitmap != null) {
+    Image(
+      bitmap = bitmap.asImageBitmap(),
+      contentDescription = contentDescription,
+      contentScale = contentScale,
+      modifier = modifier
+    )
+  } else {
+    Box(
+      modifier = modifier.background(
+        Brush.linearGradient(listOf(Color(0xFF10131B), Color(0xFF1A2030)))
+      ),
+      contentAlignment = Alignment.Center
+    ) {
+      Text(
+        text = game.title.take(2).uppercase(),
+        color = VertixTextSecondary,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold
+      )
+    }
+  }
 }

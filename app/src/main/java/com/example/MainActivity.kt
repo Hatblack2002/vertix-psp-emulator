@@ -48,7 +48,6 @@ import com.example.ui.components.TechnicalErrorDialog
 import com.example.ui.screens.DesignSystemScreen
 import com.example.ui.screens.FilesScreen
 import com.example.ui.screens.GameDetailScreen
-import com.example.ui.screens.GameRunningScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.PerformanceScreen
@@ -104,13 +103,12 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
 
   BackHandler(enabled = uiState.currentScreen != VertixScreen.HOME && uiState.currentScreen != VertixScreen.SPLASH) {
     when (uiState.currentScreen) {
-      VertixScreen.GAME_RUNNING -> viewModel.openQuickMenu()
       VertixScreen.GAME_DETAIL -> viewModel.navigateTo(VertixScreen.LIBRARY)
       else -> viewModel.navigateTo(VertixScreen.HOME)
     }
   }
 
-  val showBottomNav = uiState.currentScreen != VertixScreen.SPLASH && uiState.currentScreen != VertixScreen.GAME_RUNNING
+  val showBottomNav = uiState.currentScreen != VertixScreen.SPLASH
 
   Scaffold(
     modifier = Modifier
@@ -131,10 +129,7 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
     Box(
       modifier = Modifier
         .fillMaxSize()
-        .padding(
-          top = if (uiState.currentScreen == VertixScreen.GAME_RUNNING) 0.dp else paddingValues.calculateTopPadding(),
-          bottom = if (uiState.currentScreen == VertixScreen.GAME_RUNNING) 0.dp else paddingValues.calculateBottomPadding()
-        )
+        .padding(paddingValues)
     ) {
       when (uiState.currentScreen) {
         VertixScreen.SPLASH -> {
@@ -176,7 +171,7 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
           uiState.selectedGame?.let { game ->
             GameDetailScreen(
               game = game,
-              saveSlots = uiState.currentSaveSlots.filter { it.gameId == game.id },
+              saveSlots = emptyList(),
               onBackClick = { viewModel.navigateTo(VertixScreen.LIBRARY) },
               onPlayClick = { viewModel.launchGame(game) },
               onResumeSlotClick = { viewModel.launchGame(game) },
@@ -188,33 +183,9 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
           }
         }
 
-        VertixScreen.GAME_RUNNING -> {
-          uiState.selectedGame?.let { game ->
-            GameRunningScreen(
-              game = game,
-              controlSettings = uiState.controlSettings,
-              performanceMetrics = uiState.performanceMetrics,
-              isQuickMenuOpen = uiState.isQuickMenuOpen,
-              onOpenQuickMenu = { viewModel.openQuickMenu() },
-              onCloseQuickMenu = { viewModel.closeQuickMenu() },
-              onSaveState = { viewModel.saveState() },
-              onLoadState = { viewModel.loadState() },
-              onExitGame = { viewModel.stopGame() },
-              onButtonInput = { mask, isPressed -> viewModel.onButtonInput(mask, isPressed) },
-              onAnalogInput = { x, y -> viewModel.onAnalogInput(x, y) }
-            )
-          }
-        }
-
         VertixScreen.SETTINGS -> {
           SettingsScreen(
-            graphicSettings = uiState.graphicSettings,
-            audioSettings = uiState.audioSettings,
-            controlSettings = uiState.controlSettings,
-            onUpdateGraphicSettings = { viewModel.updateGraphicSettings(it) },
-            onUpdateAudioSettings = { viewModel.updateAudioSettings(it) },
-            onUpdateControlSettings = { viewModel.updateControlSettings(it) },
-            onResetSettings = { viewModel.resetAllSettings() },
+            gameCount = uiState.games.size,
             onBackClick = { viewModel.navigateTo(VertixScreen.HOME) }
           )
         }
@@ -230,12 +201,12 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
 
         VertixScreen.PERFORMANCE -> {
           PerformanceScreen(
-            metrics = uiState.performanceMetrics,
-            fpsHistory = uiState.fpsHistory,
+            metrics = uiState.deviceMetrics,
             logs = uiState.logs,
             selectedCategory = uiState.selectedLogCategory,
             onSelectCategory = { viewModel.setLogCategory(it) },
             onClearLogs = { viewModel.clearLogs() },
+            onRefresh = { viewModel.refreshDeviceMetrics() },
             onBackClick = { viewModel.navigateTo(VertixScreen.HOME) }
           )
         }

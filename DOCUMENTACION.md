@@ -96,119 +96,87 @@ Se ha implementado el **Storage Access Framework (SAF)** nativo de Android:
 
 ---
 
-## 5. Auditoría de Simulaciones y Transición al Motor Real C++/JNI
+## 5. Motor de Emulación REAL — PPSSPP v1.19.3
 
-A petición del proyecto, se han auditado y eliminado los elementos conceptuales temporales para preparar la aplicación para el núcleo de emulación real:
+VERTIX ya **no contiene ninguna simulación**: la emulación la realiza el núcleo
+C++ de [PPSSPP](https://www.ppsspp.org) v1.19.3 (GPL v2+), compilado desde la
+fuente oficial dentro de la CI.
 
-### Archivos Auditados y Cambios Realizados
+### 5.1 Arquitectura del núcleo real
 
-| Archivo | Estado Anterior (Simulación) | Estado Actual (Real) | Pasos para Conectar el Motor C++ Nativo |
-|---|---|---|---|
-| `VertixViewModel.kt` | Catálogo ficticio de juegos precargados al inicio y bucle de generación de números aleatorios para FPS. | La biblioteca inicia vacía por defecto. Carga únicamente juegos importados del usuario mediante `GameRepository`. La telemetría lee métricas reales del entorno Android. | Reemplazar las llamadas a `VertixEngineService` por el puente nativo `NativeVertixCore.nativeStepFrame()`. |
-| `LibraryScreen.kt` | Incluía un botón de depuración conceptual ("Ver Estado Vacío / Ver Con Juegos"). | Se eliminó el botón decorativo. Muestra el estado vacío real cuando no hay juegos y la cuadrícula/lista cuando el usuario los importa. | No requiere cambios; consume la lista real del ViewModel. |
-| `HomeScreen.kt` | Mostraba tarjetas de juegos que no existían en el almacenamiento del usuario. | Detecta si la lista de juegos está vacía. Si no hay juegos, presenta la invitación profesional a importar archivos con un botón activo. | Conectar la tarjeta de continuidad al último estado guardado en el backend nativo. |
-| `FilesScreen.kt` | Mostraba rutas simuladas fijas. | Permite lanzar el selector de documentos real del sistema Android para importar cualquier archivo `.iso` o `.cso`. | Si se desea navegación directa por carpetas en lugar de SAF, integrar `DocumentFile.fromTreeUri()`. |
-| `GameRunningScreen.kt` | Captura estática de muestra fija con controles en pantalla. | Los controles táctiles virtuales cuentan con multitáctil real, arrastre en el stick analógico, respuesta háptica (`VIBRATE`) y menú rápido interactivo. | Enlazar `onDirectionPress`, `onTouchButton`, y `stickOffset` directamente con `NativeVertixCore.nativeSendInput(buttonMask, analogX, analogY)`. |
-| `engine/VertixEmulatorEngine.kt` | No existía una capa de desacoplamiento para el backend nativo. | Creado como contrato `EmulatorBackend` junto con la clase `NativeVertixCore` preparada para enlazar con `libvertix_core.so` mediante `System.loadLibrary()`. | Compilar el núcleo de emulación C++ (ej. PPSSPP Core) y exportar las funciones JNI declaradas. |
+| Pieza | Descripción |
+|---|---|
+| `libppsspp_jni.so` | Núcleo nativo real (CPU MIPS R4000 con JIT, GPU GL/Vulkan, audio OpenSL ES, UECD). Se compila con `ndk-build` desde el código oficial de PPSSPP y se empaqueta en `app/src/main/jniLibs/<abi>/`. |
+| `org.ppsspp.ppsspp.*` (glue Java) | Clases puente oficiales de PPSSPP (`NativeActivity`, `PpssppActivity`, `NativeApp`, vistas GL/Vulkan, audio, input). Viven en ese paquete porque el binario C++ exporta JNI con ese namespace. |
+| `com.example.PspGameActivity` | Actividad de juego de VERTIX: extiende `PpssppActivity`, se declara en landscape y arranca el juego cuya ruta llega por intent. |
+| `engine/PspLauncher.kt` | Lanzador: valida que la copia local exista y envía la ruta absoluta al núcleo. Si el archivo no existe devuelve `false` (nunca simula un arranque). |
+| `engine/PspArtwork.kt` | Extrae la portada **real** (ICON0.PNG) del propio archivo del juego: recorre el sistema de archivos ISO9660 (PVD sector 16 → PSP_GAME/ICON0.PNG) o el header PBP. En CSO/CHD devuelve null y la UI muestra un marcador neutral. |
+| `storage/GameRepository.kt` | Importa copiando el juego completo a `filesDir/games/` (los URI de SAF expiran), verifica la cabecera (ISO/PBP/CSO/CHD) y guarda la portada extraída en `filesDir/covers/`. |
 
----
+### 5.2 Flujo de arranque de un juego (100% real)
 
-## 6. Especificación de la Interfaz JNI C++ (Core Nativo)
+1. El usuario importa un `.iso/.cso/.pbp` con el selector SAF del sistema.
+2. `GameRepository` copia el archivo a almacenamiento privado y extrae `ICON0.PNG` del ISO/PBP.
+3. Al pulsar "Jugar", `VertixViewModel.launchGame()` garantiza la copia local y llama a `PspLauncher`.
+4. `PspLauncher` inicia `PspGameActivity` (landscape, fullscreen) con la ruta del juego.
+5. `PpssppActivity` carga `libppsspp_jni.so` y pasa la ruta al núcleo C++, que emula el juego real:
+   controles táctiles estilo PSP sobre el juego, rotación según el juego (horizontal), menú nativo
+   del emulador con el botón atrás (gráficos, audio, savestates, FPS reales en pantalla).
 
-Para integrar un motor de emulación C++ real (como el núcleo de PPSSPP o un núcleo Libretro MIPS):
+### 5.3 Lo que ya no existe (auditoría anti-simulación)
 
-### Declaración en C++ (`vertix_core_jni.cpp`)
-
-```cpp
-#include <jni.h>
-#include <string>
-
-extern "C" {
-
-JNIEXPORT jboolean JNICALL
-Java_com_example_engine_NativeVertixCore_nativeInit(JNIEnv *env, jobject thiz, jint width, jint height) {
-    // Inicializar subsistemas: MIPS CPU JIT, GPU Vulkan/GLES Context, Audio DSP Buffer
-    return JNI_TRUE;
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_example_engine_NativeVertixCore_nativeLoadRom(JNIEnv *env, jobject thiz, jstring path_or_uri) {
-    const char *nativePath = env->GetStringUTFChars(path_or_uri, 0);
-    // Abrir descriptor de archivo ISO/CSO (vía File Descriptor desde SAF Uri)
-    // Inicializar memoria del PSP (32MB/64MB RAM)
-    env->ReleaseStringUTFChars(path_or_uri, nativePath);
-    return JNI_TRUE;
-}
-
-JNIEXPORT jfloat JNICALL
-Java_com_example_engine_NativeVertixCore_nativeStepFrame(JNIEnv *env, jobject thiz) {
-    // Ejecutar ciclo de instrucciones CPU hasta el próximo VBLANK (16.6ms para 60fps)
-    // Renderizar buffer a SurfaceView / TextureView mediante Vulkan 1.3
-    return 60.0f; // FPS medidos reales
-}
-
-JNIEXPORT void JNICALL
-Java_com_example_engine_NativeVertixCore_nativeSendInput(JNIEnv *env, jobject thiz, jint buttons, jfloat analog_x, jfloat analog_y) {
-    // Inyectar estado en el registro de mandos del emulador (CtrlPad)
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_example_engine_NativeVertixCore_nativeSaveState(JNIEnv *env, jobject thiz, jint slot) {
-    // Volcar snapshot de memoria y registros a archivo binario de estado
-    return JNI_TRUE;
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_example_engine_NativeVertixCore_nativeLoadState(JNIEnv *env, jobject thiz, jint slot) {
-    // Restaurar snapshot de memoria
-    return JNI_TRUE;
-}
-
-JNIEXPORT void JNICALL
-Java_com_example_engine_NativeVertixCore_nativeShutdown(JNIEnv *env, jobject thiz) {
-    // Liberar recursos gráficos, memoria y audio
-}
-
-}
-```
-
-### Configuración en `app/build.gradle.kts` para el NDK
-
-```kotlin
-android {
-    defaultConfig {
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-std=c++17 -O3"
-                arguments += "-DANDROID_STL=c++_shared"
-            }
-        }
-    }
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
-}
-```
+| Eliminado | Motivo |
+|---|---|
+| `engine/VertixEmulatorEngine.kt` (NativeVertixCore, VertixEngineService, modo simulado) | Núcleo falso que dormía el hilo y calculaba FPS inventados. |
+| `app/src/main/cpp/` (vertix_core_jni.cpp, CMakeLists) | "Emulador" de mentira: `core_load_rom` solo guardaba la ruta. |
+| `ui/screens/GameRunningScreen.kt` | Pantalla con imagen fija y controles decorativos que no afectaban a ningún juego. |
+| Telemetría fabricada (`PerformanceMetrics.fps/cpuUsage/temperatura`, curva de FPS) | Los FPS reales los mide y muestra el propio PPSSPP (HUD nativo). |
+| Portadas fijas (cover_gow / cover_gta / cover_tekken) | Ahora se extrae la portada real del archivo; si no existe, marcador neutral. |
+| Logs falsos de arranque ("Vulkan 1.3", "ARM64 Core initialized") | El registro solo contiene eventos reales de importación/arranque/errores. |
 
 ---
 
-## 7. Instrucciones de Compilación y GitHub Actions CI
+## 6. CI — Compilación del núcleo real y del APK
 
-El proyecto se compila con el sistema Gradle de Android:
+El workflow `.github/workflows/build-apk.yml` hace, en dos jobs:
+
+1. **build-native** (por ABI: `arm64-v8a`, `armeabi-v7a`):
+   - Clona `https://github.com/hrydgard/ppsspp` en el tag `v1.19.3` con submódulos
+     (`ffmpeg` con binarios precompilados por ABI, `glslang`, `SPIRV-Cross`, `armips`,
+     `miniupnp`, `zstd`, `lua`...).
+   - Compila con `ndk-build` el módulo `ppsspp_jni` → `libppsspp_jni.so`.
+   - Verifica con `llvm-nm` que el binario exporta el puente JNI `Java_org_ppsspp_ppsspp_*`.
+2. **build-apk**:
+   - Coloca los `.so` en `app/src/main/jniLibs/<abi>/`.
+   - `./gradlew :app:assembleDebug :app:testDebugUnitTest` (Java 21: Robolectric SDK 36 lo exige).
+   - Verifica que el APK contiene `libppsspp_jni.so` para ambas ABIs y los assets de PPSSPP.
+   - Publica el artefacto **vertix-apk-debug** listo para instalar.
+
+### Requisitos de compilación local
 
 ```bash
-# Compilar la aplicación en modo Debug
-gradle :app:assembleDebug
+# 1. Compilar el núcleo (requiere NDK r27)
+git clone --depth 1 --branch v1.19.3 --recurse-submodules --shallow-submodules https://github.com/hrydgard/ppsspp.git
+cd ppsspp/android && $ANDROID_NDK_HOME/ndk-build -j$(nproc) \
+  NDK_PROJECT_PATH=. NDK_APPLICATION_MK=jni/Application.mk APP_BUILD_SCRIPT=jni/Android.mk \
+  APP_ABI="arm64-v8a armeabi-v7a" ppsspp_jni
+# -> libs/<abi>/libppsspp_jni.so
 
-# Ejecutar las pruebas unitarias y de Robolectric
-gradle :app:testDebugUnitTest
+# 2. Copiar las librerías al proyecto
+mkdir -p ../app/src/main/jniLibs && cp -r libs/* ../app/src/main/jniLibs/
 
-# Generar el paquete APK para distribución
-gradle :app:packageDebug
+# 3. Compilar el APK
+./gradlew :app:assembleDebug
 ```
 
-Los artefactos generados se ubican en `app/build/outputs/apk/debug/app-debug.apk`.
-El flujo de CI en GitHub Actions está configurado para validar la compilación y pruebas en cada commit a la rama principal.
+---
+
+## 7. Licencias y créditos
+
+- Núcleo de emulación: **PPSSPP** © Henrik Rydgård y contribuidores — GPL v2+.
+  https://github.com/hrydgard/ppsspp — VERTIX incluye y usa el núcleo tal cual,
+  compilado desde la fuente oficial; el glue Java (`org.ppsspp.ppsspp`) conserva
+  su licencia original.
+- Assets del emulador (fuentes flash0, shaders, idiomas, atles UI): incluidos tal
+  cual del repositorio oficial de PPSSPP.
+- Interfaz VERTIX (Compose): diseño propio del proyecto.

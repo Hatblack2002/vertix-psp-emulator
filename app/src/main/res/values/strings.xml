@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">VERTIX</string>
+    <!-- Cadenas usadas por el núcleo de emulación PPSSPP (org.ppsspp.ppsspp.NativeActivity) -->
+    <string name="bad_disc_title">Disco no compatible</string>
+    <string name="bad_disc_message">El archivo seleccionado no fue reconocido como un juego de PSP.</string>
 </resources>

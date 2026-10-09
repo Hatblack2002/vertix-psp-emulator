@@ -3,6 +3,19 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Solo exigido en Android <= 9 para leer juegos directamente del almacenamiento. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <uses-feature android:glEsVersion="0x00020000" />
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -25,6 +38,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          PspGameActivity: pantalla REAL de emulación (núcleo PPSSPP v1.19.3).
+          Extiende org.ppsspp.ppsspp.PpssppActivity, que carga libppsspp_jni.so,
+          recibe la ruta del juego vía intent-data y delega en el núcleo nativo.
+          Landscape: los juegos de PSP son horizontales (480x272) — modo película.
+        -->
+        <activity
+            android:name=".PspGameActivity"
+            android:exported="false"
+            android:label="VERTIX"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/ppsspp_style"
+            android:configChanges="locale|keyboard|keyboardHidden|navigation|uiMode|orientation|screenSize|screenLayout|smallestScreenSize|density" />
     </application>
 
 </manifest>

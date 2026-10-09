@@ -2,4 +2,11 @@
 <resources>
 
     <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar" />
+
+    <!-- Estilo del núcleo de emulación PPSSPP: pantalla completa, sin barra de título. -->
+    <color name="ppsspp_black">#FF000000</color>
+    <style name="ppsspp_style">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>

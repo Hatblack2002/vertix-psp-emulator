@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.PspGame
 import com.example.model.SaveStateSlot
 import com.example.ui.components.CompatibilityBadge
+import com.example.ui.components.GameCoverImage
 import com.example.ui.components.VertixPrimaryButton
 import com.example.ui.theme.OrbitronFontFamily
 import com.example.ui.theme.VertixBg
@@ -87,10 +88,9 @@ fun GameDetailScreen(
           .height(300.dp)
       ) {
         // Blurred backdrop
-        Image(
-          painter = painterResource(id = game.coverResId),
+        GameCoverImage(
+          game = game,
           contentDescription = null,
-          contentScale = ContentScale.Crop,
           modifier = Modifier
             .fillMaxSize()
             .blur(20.dp)
@@ -146,10 +146,9 @@ fun GameDetailScreen(
               .clip(RoundedCornerShape(12.dp))
               .border(1.5.dp, VertixBorder, RoundedCornerShape(12.dp))
           ) {
-            Image(
-              painter = painterResource(id = game.coverResId),
+            GameCoverImage(
+              game = game,
               contentDescription = game.title,
-              contentScale = ContentScale.Crop,
               modifier = Modifier.fillMaxSize()
             )
           }
@@ -305,12 +304,21 @@ fun GameDetailScreen(
           Spacer(modifier = Modifier.height(10.dp))
 
           MetadataRow(label = "Identificador", value = game.id, isCode = true)
-          MetadataRow(label = "Formato de archivo", value = "${game.format} (UDF Image)")
+          MetadataRow(label = "Formato de archivo", value = "${game.format} (imagen UMD)")
           MetadataRow(label = "Tamaño", value = game.size)
-          MetadataRow(label = "Ubicación", value = game.filePath, isCode = true)
+          MetadataRow(label = "Ubicación", value = game.localPath ?: game.filePath, isCode = true)
           MetadataRow(label = "Última ejecución", value = game.lastPlayed)
           MetadataRow(label = "Tiempo de juego", value = game.playTime)
-          MetadataRow(label = "Verificación de integridad", value = "Verificado (SHA-1)", isSuccess = true)
+          MetadataRow(
+            label = "Copia local",
+            value = if (game.localPath != null) "Lista para el núcleo PPSSPP" else "Pendiente de importar",
+            isSuccess = game.localPath != null
+          )
+          MetadataRow(
+            label = "Portada",
+            value = if (game.coverPath != null) "ICON0.PNG extraída del juego" else "No disponible en el archivo",
+            isSuccess = game.coverPath != null
+          )
         }
       }
     }
@@ -352,11 +360,11 @@ fun GameDetailScreen(
                 .height(40.dp)
                 .clip(RoundedCornerShape(6.dp))
             ) {
-              Image(
-                painter = painterResource(id = slot.thumbnailResId),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+              Text(
+                text = "SLOT ${slot.slotNumber}",
+                fontSize = 10.sp,
+                color = VertixTextSecondary,
+                modifier = Modifier.padding(8.dp)
               )
             }
 

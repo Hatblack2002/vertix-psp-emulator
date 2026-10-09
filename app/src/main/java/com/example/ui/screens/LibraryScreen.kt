@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.CompatibilityStatus
 import com.example.model.PspGame
 import com.example.ui.components.CompatibilityBadge
+import com.example.ui.components.GameCoverImage
 import com.example.ui.components.EmptyLibraryState
 import com.example.ui.components.FilterChipTab
 import com.example.ui.theme.OrbitronFontFamily
@@ -298,10 +299,9 @@ fun LibraryGridCard(
           .aspectRatio(0.75f)
           .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
       ) {
-        Image(
-          painter = painterResource(id = game.coverResId),
+        GameCoverImage(
+          game = game,
           contentDescription = game.title,
-          contentScale = ContentScale.Crop,
           modifier = Modifier.fillMaxSize()
         )
 
@@ -444,10 +444,9 @@ fun LibraryListItem(
           .clip(RoundedCornerShape(8.dp))
           .border(0.5.dp, VertixBorder, RoundedCornerShape(8.dp))
       ) {
-        Image(
-          painter = painterResource(id = game.coverResId),
+        GameCoverImage(
+          game = game,
           contentDescription = game.title,
-          contentScale = ContentScale.Crop,
           modifier = Modifier.fillMaxSize()
         )
       }

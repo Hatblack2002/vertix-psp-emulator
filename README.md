@@ -21,9 +21,6 @@
   <a href="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/build-apk.yml">
     <img src="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/build-apk.yml/badge.svg" alt="Build APK" />
   </a>
-  <a href="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/integrate-ppsspp-core.yml">
-    <img src="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/integrate-ppsspp-core.yml/badge.svg" alt="Integrate PPSSPP Core" />
-  </a>
 </p>
 
 ---
@@ -34,10 +31,9 @@
 * **Arranque Profesional Limpio**: Abre sin catálogos falsos ni juegos precargados ficticios; permite importar tus propios archivos legítimos `.iso`, `.cso` y `.pbp`.
 * **Importación Real desde Almacenamiento**: Integración completa con el **Storage Access Framework (SAF)** de Android para seleccionar archivos directamente de la memoria del teléfono y persistirlos localmente.
 * **Biblioteca con Vista Dual**: Conmutador fluido entre vista de cuadrícula (proporción 3:4 con portadas de alta definición) y vista de lista con identificadores técnicos y tamaños.
-* **Controles Virtuales Táctiles**:
-  * Cruceta direccional (D-Pad) vectorial con feedback visual luminoso.
-  * Stick analógico virtual con arrastre dinámico y retorno elástico.
-  * Botones de acción PlayStation (△, ○, ✕, □) con soporte multitáctil y respuesta háptica.
+* **Emulación Real — Núcleo PPSSPP v1.19.3**: los juegos `.iso`, `.cso` y `.pbp` se ejecutan de verdad (CPU MIPS con JIT, GPU OpenGL ES/Vulkan, audio OpenSL ES).
+* **Controles estilo PSP en el juego**: el propio núcleo superpone stick analógico, cruceta, △ ○ ✕ □, gatillos y Start/Select sobre la pantalla en horizontal (modo película), con soporte de mandos Bluetooth.
+* **Portadas reales**: el icono de cada juego (ICON0.PNG) se extrae directamente del archivo ISO/PBP — sin imágenes inventadas.
   * Gatillos superiores L y R.
   * Menú rápido en juego para guardar y cargar partidas (*Savestates*).
 * **Ajustes de Renderizado y Audio**:
@@ -101,7 +97,7 @@ El APK compilado se genera en:
 
 ## Integración con el Motor C++ (PPSSPP Core)
 
-El proyecto incluye la interfaz JNI `NativeVertixCore` lista para vincular con cualquier biblioteca nativa `libvertix_core.so` compilada mediante el NDK de Android. Consulta el archivo [DOCUMENTACION.md](DOCUMENTACION.md) para ver la especificación completa de las funciones C++ requeridas y la guía de integración.
+El motor de emulación es el núcleo C++ real de **PPSSPP v1.19.3** (`libppsspp_jni.so`), compilado desde la fuente oficial en la CI y enlazado mediante el glue Java oficial (`org.ppsspp.ppsspp`). Consulta [DOCUMENTACION.md](DOCUMENTACION.md) para la arquitectura completa y la guía de compilación local.
 
 ### Integración del PPSSPP Core real
 
@@ -134,8 +130,7 @@ El proyecto incluye dos workflows de GitHub Actions:
 
 | Workflow | Disparador | Propósito |
 |---|---|---|
-| [`build-apk.yml`](.github/workflows/build-apk.yml) | `push` a main/develop, `pull_request`, manual | Compila `libvertix_core.so` (CMake) + APK debug/release, ejecuta tests unitarios y sube el APK como artefacto. Actúa como **gate de calidad** antes del merge a `main`. |
-| [`integrate-ppsspp-core.yml`](.github/workflows/integrate-ppsspp-core.yml) | Manual (`workflow_dispatch`), push a `cpp/` | Clona el repo PPSSPP, compila `libPPSSPPCore.a` por ABI, la enlaza contra `libvertix_core.so` y ejecuta un smoke test de los símbolos JNI exportados. |
+| [`build-apk.yml`](.github/workflows/build-apk.yml) | `push` a main/develop, `pull_request`, manual | **Pipeline real**: clona PPSSPP v1.19.3 con submódulos, compila `libppsspp_jni.so` con ndk-build (arm64-v8a + armeabi-v7a), empaqueta el APK con el núcleo, ejecuta tests unitarios y publica el artefacto `vertix-apk-debug`. |
 
 ### Protección de rama `main`
 

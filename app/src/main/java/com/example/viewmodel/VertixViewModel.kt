@@ -4,23 +4,20 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.R
-import com.example.engine.VertixEngineService
-import com.example.model.AudioSettings
-import com.example.model.ControlSettings
 import com.example.model.EmulationLogEntry
-import com.example.model.GraphicSettings
 import com.example.model.LogCategory
 import com.example.model.PerformanceMetrics
 import com.example.model.PspGame
-import com.example.model.SaveStateSlot
+import com.example.engine.PspLauncher
 import com.example.storage.GameRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -30,7 +27,6 @@ enum class VertixScreen {
   HOME,
   LIBRARY,
   GAME_DETAIL,
-  GAME_RUNNING,
   SETTINGS,
   FILES,
   PERFORMANCE,
@@ -46,34 +42,23 @@ data class VertixUiState(
   val currentScreen: VertixScreen = VertixScreen.SPLASH,
   val previousScreen: VertixScreen = VertixScreen.HOME,
   val isSplashLoading: Boolean = true,
-  val splashStepMessage: String = "Inicializando subsistemas...",
+  val splashStepMessage: String = "Inicializando núcleo PPSSPP...",
   val games: List<PspGame> = emptyList(),
   val selectedGame: PspGame? = null,
   val searchQuery: String = "",
   val selectedCategory: String = "Todos",
   val viewMode: LibraryViewMode = LibraryViewMode.GRID,
-  val graphicSettings: GraphicSettings = GraphicSettings(),
-  val audioSettings: AudioSettings = AudioSettings(),
-  val controlSettings: ControlSettings = ControlSettings(),
-  val performanceMetrics: PerformanceMetrics = PerformanceMetrics(),
-  val fpsHistory: List<Float> = emptyList(),
-  val isGameRunning: Boolean = false,
-  val isQuickMenuOpen: Boolean = false,
-  val currentSaveSlots: List<SaveStateSlot> = emptyList(),
+  val deviceMetrics: PerformanceMetrics = PerformanceMetrics(),
+  val isImporting: Boolean = false,
   val logs: List<EmulationLogEntry> = emptyList(),
   val selectedLogCategory: LogCategory = LogCategory.ALL,
   val logSearchQuery: String = "",
   val toastNotification: String? = null,
-  val errorDialogMessage: String? = null,
-  /** True cuando libvertix_core.so está cargada e inicializada. */
-  val nativeCoreActive: Boolean = false,
-  /** Contador absoluto de frames ejecutados por el núcleo nativo. */
-  val nativeFrameCounter: Long = 0L
+  val errorDialogMessage: String? = null
 )
 
 class VertixViewModel(application: Application) : AndroidViewModel(application) {
   private val repository = GameRepository(application.applicationContext)
-  private val engineService = VertixEngineService()
   private val appContext = application.applicationContext
 
   private val _uiState = MutableStateFlow(VertixUiState())
@@ -81,27 +66,8 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
 
   init {
     loadPersistedGames()
-    initSystemLogs()
     startSplashSequence()
-    bootstrapNativeCore()
-    startTelemetryMonitor()
-  }
-
-  /**
-   * Inicializa el núcleo nativo (libvertix_core.so) tan pronto como el
-   * ViewModel está listo. Si la librería no está cargada, se queda en modo
-   * simulado de forma transparente.
-   */
-  private fun bootstrapNativeCore() {
-    // Resolución interna por defecto: 2x (1080p) — coincide con GraphicSettings().
-    val ok = engineService.initialize(appContext, surfaceWidth = 960, surfaceHeight = 544)
-    _uiState.update { it.copy(nativeCoreActive = ok) }
-    addLog(
-      LogCategory.SYSTEM,
-      "INFO",
-      if (ok) "Núcleo nativo libvertix_core.so inicializado (backend C++ activo)"
-             else "Núcleo nativo no disponible — modo simulado JVM (libvertix_core.so no cargada)"
-    )
+    refreshDeviceMetrics()
   }
 
   private fun loadPersistedGames() {
@@ -114,26 +80,13 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
     }
   }
 
-  private fun initSystemLogs() {
-    val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date())
-    val initialLogs = listOf(
-      EmulationLogEntry("1", timestamp, LogCategory.SYSTEM, "INFO", "VERTIX Android ARM64 Core initialized"),
-      EmulationLogEntry("2", timestamp, LogCategory.GRAPHICS, "INFO", "Surface backend: Vulkan 1.3 / OpenGLES"),
-      EmulationLogEntry("3", timestamp, LogCategory.AUDIO, "INFO", "Audio subsystem connected via AAudio"),
-      EmulationLogEntry("4", timestamp, LogCategory.FILES, "INFO", "Storage Access Framework ready for ISO/CSO")
-    )
-    _uiState.update { it.copy(logs = initialLogs) }
-  }
-
   private fun startSplashSequence() {
     viewModelScope.launch {
-      delay(500)
-      _uiState.update { it.copy(splashStepMessage = "Cargando configuración...") }
       delay(400)
-      _uiState.update { it.copy(splashStepMessage = "Preparando biblioteca...") }
+      _uiState.update { it.copy(splashStepMessage = "Cargando biblioteca...") }
       delay(400)
       _uiState.update { it.copy(splashStepMessage = "Listo") }
-      delay(300)
+      delay(250)
       _uiState.update {
         it.copy(
           isSplashLoading = false,
@@ -143,48 +96,56 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
     }
   }
 
-  private fun startTelemetryMonitor() {
-    viewModelScope.launch {
-      while (true) {
-        delay(1000)
-        val telemetry = engineService.getTelemetry()
-        _uiState.update { state ->
-          val newHistory = (state.fpsHistory + telemetry.fps).takeLast(20)
-          state.copy(
-            performanceMetrics = state.performanceMetrics.copy(
-              fps = telemetry.fps,
-              frameTimeMs = telemetry.frameTimeMs,
-              cpuUsage = (telemetry.availableCores * 8).coerceAtMost(100),
-              ramUsage = "${telemetry.memoryUsedMb} MB / ${telemetry.memoryTotalMb} MB",
-              speedPercent = telemetry.emulationSpeedPercent
-            ),
-            fpsHistory = newHistory,
-            nativeCoreActive = telemetry.nativeBackendActive,
-            nativeFrameCounter = telemetry.nativeFrameCounter
-          )
-        }
-      }
+  /**
+   * Métricas REALES del dispositivo (memoria JVM y núcleos disponibles).
+   * Se refrescan al abrir la pantalla de rendimiento y al importar/jugar.
+   */
+  fun refreshDeviceMetrics() {
+    val runtime = Runtime.getRuntime()
+    val totalMem = runtime.totalMemory() / (1024 * 1024)
+    val freeMem = runtime.freeMemory() / (1024 * 1024)
+    _uiState.update {
+      it.copy(
+        deviceMetrics = PerformanceMetrics(
+          ramUsedMb = totalMem - freeMem,
+          ramTotalMb = runtime.maxMemory() / (1024 * 1024),
+          availableCores = runtime.availableProcessors(),
+          libraryGames = it.games.size
+        )
+      )
     }
   }
 
   fun importGames(uris: List<Uri>) {
     viewModelScope.launch {
+      _uiState.update { it.copy(isImporting = true, toastNotification = null) }
       var importedCount = 0
-      for (uri in uris) {
-        val game = repository.importFromUri(uri)
-        if (game != null) {
-          importedCount++
-          addLog(LogCategory.FILES, "INFO", "Juego importado: ${game.title} (${game.format}, ${game.size})")
+      var lastError = ""
+      withContext(Dispatchers.IO) {
+        for (uri in uris) {
+          val game = repository.importFromUri(uri)
+          if (game != null) {
+            importedCount++
+            addLog(LogCategory.FILES, "INFO", "Juego importado: ${game.title} (${game.format}, ${game.size}) — copia local lista")
+          } else {
+            lastError = "No se pudo copiar/leer el archivo. ¿Es un ISO/CSO/PBP de PSP válido?"
+            addLog(LogCategory.FILES, "ERR", lastError)
+          }
         }
       }
       val updatedList = repository.getSavedGames()
       _uiState.update {
         it.copy(
+          isImporting = false,
           games = updatedList,
           selectedGame = updatedList.firstOrNull(),
-          toastNotification = if (importedCount > 0) "$importedCount juego(s) importado(s) a la biblioteca" else "No se pudo leer el archivo"
+          toastNotification = when {
+            importedCount > 0 -> "$importedCount juego(s) importado(s) — portada extraída del archivo cuando estaba disponible"
+            else -> lastError.ifBlank { "No se pudo importar el archivo" }
+          }
         )
       }
+      refreshDeviceMetrics()
     }
   }
 
@@ -195,13 +156,15 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
         games = updated,
         selectedGame = updated.firstOrNull(),
         currentScreen = if (it.currentScreen == VertixScreen.GAME_DETAIL) VertixScreen.LIBRARY else it.currentScreen,
-        toastNotification = "Juego eliminado de la biblioteca"
+        toastNotification = "Juego y su copia local eliminados"
       )
     }
     addLog(LogCategory.FILES, "INFO", "Juego eliminado de la biblioteca: $gameId")
+    refreshDeviceMetrics()
   }
 
   fun navigateTo(screen: VertixScreen) {
+    if (screen == VertixScreen.PERFORMANCE) refreshDeviceMetrics()
     _uiState.update {
       it.copy(
         previousScreen = it.currentScreen,
@@ -219,21 +182,48 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
     }
   }
 
+  /**
+   * Arranca el juego REAL en el núcleo PPSSPP (PspGameActivity).
+   * El archivo debe existir como copia local; si no existe (p. ej. porque
+   * el dispositivo borró el cache) se vuelve a copiar desde el URI.
+   */
   fun launchGame(game: PspGame) {
-    val ok = engineService.loadGame(game.filePath)
-    _uiState.update {
-      it.copy(
-        selectedGame = game,
-        isGameRunning = true,
-        currentScreen = VertixScreen.GAME_RUNNING,
-        toastNotification = if (ok) "Iniciando ${game.title}" else "No se pudo cargar ${game.title}"
+    viewModelScope.launch {
+      val localPath = withContext(Dispatchers.IO) {
+        ensureLocalCopy(game)
+      }
+      val ok = PspLauncher.launch(appContext, localPath)
+      _uiState.update {
+        it.copy(
+          selectedGame = game,
+          toastNotification = if (ok) "Arrancando ${game.title} en el núcleo PPSSPP" else "No se pudo arrancar ${game.title}"
+        )
+      }
+      addLog(
+        LogCategory.EMULATION,
+        if (ok) "INFO" else "ERR",
+        if (ok) {
+          "Boot: ${game.title} (${game.format}) — núcleo PPSSPP v1.19.3, ruta=$localPath"
+        } else {
+          "Fallo de arranque de ${game.title}: archivo no disponible en $localPath"
+        }
       )
     }
-    addLog(
-      LogCategory.EMULATION,
-      if (ok) "INFO" else "ERR",
-      "Núcleo ejecutando ROM: ${game.title} (${game.format}, ${game.size}) — uri=${game.filePath}"
-    )
+  }
+
+  private suspend fun ensureLocalCopy(game: PspGame): String? {
+    game.localPath?.let { path ->
+      val f = java.io.File(path)
+      if (f.exists() && f.length() > 0L) return path
+    }
+    // Re-copia desde el URI original de SAF si sigue disponible.
+    return try {
+      val uri = Uri.parse(game.filePath)
+      val reimported = withContext(Dispatchers.IO) { repository.importFromUri(uri) }
+      reimported?.localPath
+    } catch (_: Exception) {
+      null
+    }
   }
 
   fun toggleFavorite(gameId: String) {
@@ -263,62 +253,6 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
     _uiState.update { it.copy(viewMode = mode) }
   }
 
-  fun openQuickMenu() {
-    engineService.pause()
-    _uiState.update { it.copy(isQuickMenuOpen = true) }
-  }
-
-  fun closeQuickMenu() {
-    engineService.resume()
-    _uiState.update { it.copy(isQuickMenuOpen = false) }
-  }
-
-  fun saveState() {
-    engineService.saveState(1)
-    val now = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-    addLog(LogCategory.EMULATION, "INFO", "Estado de emulación guardado en ranura 1 ($now)")
-    _uiState.update {
-      it.copy(
-        isQuickMenuOpen = false,
-        toastNotification = "Estado guardado en Ranura 1"
-      )
-    }
-  }
-
-  fun loadState() {
-    engineService.loadState(1)
-    addLog(LogCategory.EMULATION, "INFO", "Estado de emulación cargado desde ranura 1")
-    _uiState.update {
-      it.copy(
-        isQuickMenuOpen = false,
-        toastNotification = "Estado cargado desde Ranura 1"
-      )
-    }
-  }
-
-  fun stopGame() {
-    engineService.stop()
-    _uiState.update {
-      it.copy(
-        isGameRunning = false,
-        isQuickMenuOpen = false,
-        currentScreen = VertixScreen.HOME
-      )
-    }
-  }
-
-  fun updateGraphicSettings(settings: GraphicSettings) {
-    _uiState.update { it.copy(graphicSettings = settings) }
-  }
-
-  fun updateAudioSettings(settings: AudioSettings) {
-    _uiState.update { it.copy(audioSettings = settings) }
-  }
-
-  fun updateControlSettings(settings: ControlSettings) {
-    _uiState.update { it.copy(controlSettings = settings) }
-  }
-
   fun setLogCategory(category: LogCategory) {
     _uiState.update { it.copy(selectedLogCategory = category) }
   }
@@ -337,42 +271,6 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
 
   fun clearErrorDialog() {
     _uiState.update { it.copy(errorDialogMessage = null) }
-  }
-
-  fun resetAllSettings() {
-    _uiState.update {
-      it.copy(
-        graphicSettings = GraphicSettings(),
-        audioSettings = AudioSettings(),
-        controlSettings = ControlSettings(),
-        toastNotification = "Ajustes restablecidos"
-      )
-    }
-  }
-
-  // ===========================================================================
-  // Entrada táctil hacia el núcleo nativo.
-  // Llamados desde GameRunningScreen a través de MainActivity. Terminan en
-  // `NativeVertixCore.nativeSendInput(buttonMask, analogX, analogY)` cuando
-  // libvertix_core.so está cargada (Sección 5 de la documentación).
-  // ===========================================================================
-
-  /**
-   * Actualiza el estado de un botón digital del pad PSP y lo reenvía al
-   * núcleo nativo. [buttonMask] debe ser una de las constantes de
-   * `VertixPspButtons` (TRIANGLE, CIRCLE, CROSS, SQUARE, DPAD_*, L_TRIGGER,
-   * R_TRIGGER, START, SELECT).
-   */
-  fun onButtonInput(buttonMask: Int, isPressed: Boolean) {
-    engineService.setButtonState(buttonMask, isPressed)
-  }
-
-  /**
-   * Actualiza la posición del stick analógico virtual (normalizada [-1, 1])
-   * y la reenvía al núcleo nativo.
-   */
-  fun onAnalogInput(x: Float, y: Float) {
-    engineService.setAnalogStick(x, y)
   }
 
   private fun addLog(category: LogCategory, severity: String, message: String) {

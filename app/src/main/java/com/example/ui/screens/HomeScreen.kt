@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.PspGame
 import com.example.ui.components.CompatibilityBadge
+import com.example.ui.components.GameCoverImage
 import com.example.ui.components.EmptyLibraryState
 import com.example.ui.components.VertixBrandLogo
 import com.example.ui.components.VertixPrimaryButton
@@ -169,10 +170,9 @@ fun HomeScreen(
                   .clip(RoundedCornerShape(10.dp))
                   .border(0.5.dp, VertixBorder, RoundedCornerShape(10.dp))
               ) {
-                Image(
-                  painter = painterResource(id = lastGame.coverResId),
+                GameCoverImage(
+                  game = lastGame,
                   contentDescription = lastGame.title,
-                  contentScale = ContentScale.Crop,
                   modifier = Modifier.fillMaxSize()
                 )
               }
@@ -340,10 +340,9 @@ fun RecentGameItem(
         .clip(RoundedCornerShape(12.dp))
         .border(1.dp, VertixBorder, RoundedCornerShape(12.dp))
     ) {
-      Image(
-        painter = painterResource(id = game.coverResId),
+      GameCoverImage(
+        game = game,
         contentDescription = game.title,
-        contentScale = ContentScale.Crop,
         modifier = Modifier.fillMaxSize()
       )
 
