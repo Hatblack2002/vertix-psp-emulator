@@ -46,7 +46,7 @@ import com.example.ui.theme.VertixTextSecondary
 /**
  * Ajustes REALES de VERTIX.
  *
- * El núcleo de emulación es PPSSPP v1.19.3: todos los ajustes de gráficos,
+ * El núcleo de emulación es PPSSPP: todos los ajustes de gráficos,
  * audio, controles táctiles y rendimiento se configuran dentro del propio
  * emulador (menú nativo de PPSSPP, accesible con el botón atrás durante el
  * juego) y persisten en ppsspp.ini. Aquí no hay interruptores decorativos:
@@ -96,7 +96,7 @@ fun SettingsScreen(
           icon = Icons.Default.SportsEsports,
           title = "Núcleo de emulación",
           lines = listOf(
-            "Motor: PPSSPP v1.19.3 (núcleo C++ real, GPL v2+)",
+            "Motor: PPSSPP (núcleo C++ real, GPL v2+, compilado desde la fuente oficial)",
             "Librería nativa: libppsspp_jni.so (arm64-v8a y armeabi-v7a)",
             "Renderizado: OpenGL ES / Vulkan (según el dispositivo)",
             "Audio: OpenSL ES · CPU emulada: MIPS R4000 (JIT dinámico)"

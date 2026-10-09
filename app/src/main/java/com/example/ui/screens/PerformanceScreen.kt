@@ -219,7 +219,7 @@ fun PerformanceScreen(
               )
               Spacer(modifier = Modifier.height(6.dp))
               Text(
-                text = "PPSSPP v1.19.3",
+                text = "PPSSPP (núcleo nativo real)",
                 fontFamily = OrbitronFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,

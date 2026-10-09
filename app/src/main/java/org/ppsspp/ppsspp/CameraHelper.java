@@ -1,6 +1,5 @@
 package org.ppsspp.ppsspp;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
@@ -13,16 +12,17 @@ import android.view.Display;
 import android.view.Surface;
 import android.view.WindowManager;
 
+import androidx.annotation.Keep;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-@TargetApi(23)
 @SuppressWarnings("deprecation")
 class CameraHelper {
 	private static final String TAG = CameraHelper.class.getSimpleName();
-	private Display mDisplay;
+	private final Display mDisplay;
 	private int mTargetWidth = 0;
 	private int mTargetHeight = 0;
 	private Camera mCamera = null;
@@ -31,7 +31,7 @@ class CameraHelper {
 	private int mCameraOrientation = 0;
 	private Camera.Size mPreviewSize = null;
 	private long mLastFrameTime = 0;
-	private SurfaceTexture mSurfaceTexture;
+	private final SurfaceTexture mSurfaceTexture;
 
 	private static boolean firstRotation = true;
 
@@ -39,7 +39,7 @@ class CameraHelper {
 		int displayRotation = mDisplay.getRotation();
 		int displayDegrees = 0;
 		switch (displayRotation) {
-			case Surface.ROTATION_0:   displayDegrees =   0; break;
+			case Surface.ROTATION_0:   /* displayDegrees = 0; */ break;
 			case Surface.ROTATION_90:  displayDegrees =  90; break;
 			case Surface.ROTATION_180: displayDegrees = 180; break;
 			case Surface.ROTATION_270: displayDegrees = 270; break;
@@ -52,6 +52,8 @@ class CameraHelper {
 	}
 
 	// Does not work if the source is smaller than the destination!
+	// TODO: Should probably move this to C++... Maybe even share the full preview image with C++
+	// and do all the reordering and JPG compression on the C++ side.
 	static byte[] rotateNV21(final byte[] input, final int inWidth, final int inHeight,
 							 final int outWidth, final int outHeight, final int rotation) {
 		if (firstRotation) {
@@ -123,31 +125,28 @@ class CameraHelper {
 		return output;
 	}
 
-	private Camera.PreviewCallback mPreviewCallback = new Camera.PreviewCallback() {
-		@Override
-		public void onPreviewFrame(byte[] previewData, Camera camera) {
-			// throttle at 16 ms
-			long currentTime = SystemClock.elapsedRealtime();
-			if (currentTime - mLastFrameTime < 16) {
-				return;
-			}
-			mLastFrameTime = currentTime;
+	private final Camera.PreviewCallback mPreviewCallback = (previewData, camera) -> {
+		// throttle at 16 ms
+		long currentTime = SystemClock.elapsedRealtime();
+		if (currentTime - mLastFrameTime < 16) {
+			return;
+		}
+		mLastFrameTime = currentTime;
 
-			int cameraRotation = getCameraRotation();
-			byte[] newPreviewData = rotateNV21(previewData, mPreviewSize.width, mPreviewSize.height,
-					mTargetWidth, mTargetHeight, cameraRotation);
-			YuvImage yuvImage = new YuvImage(newPreviewData, ImageFormat.NV21, mTargetWidth, mTargetHeight, null);
-			ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		int cameraRotation = getCameraRotation();
+		byte[] newPreviewData = rotateNV21(previewData, mPreviewSize.width, mPreviewSize.height,
+				mTargetWidth, mTargetHeight, cameraRotation);
+		YuvImage yuvImage = new YuvImage(newPreviewData, ImageFormat.NV21, mTargetWidth, mTargetHeight, null);
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
-			// convert to Jpeg
-			Rect crop = new Rect(0, 0, mTargetWidth, mTargetHeight);
-			yuvImage.compressToJpeg(crop, 80, baos);
-			NativeApp.pushCameraImageAndroid(baos.toByteArray());
-			try {
-				baos.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+		// convert to Jpeg
+		Rect crop = new Rect(0, 0, mTargetWidth, mTargetHeight);
+		yuvImage.compressToJpeg(crop, 80, baos);
+		NativeApp.pushCameraImageAndroid(baos.toByteArray());
+		try {
+			baos.close();
+		} catch (IOException e) {
+			Log.e(TAG,"Camera I/O exception: " + e);
 		}
 	};
 
@@ -157,9 +156,10 @@ class CameraHelper {
 		mSurfaceTexture = new SurfaceTexture(10);
 	}
 
+	@Keep
 	static ArrayList<String> getDeviceList() {
 		ArrayList<String> deviceList = new ArrayList<>();
-		if (NativeActivity.isVRDevice()) {
+		if (PpssppActivity.isVRDevice()) {
 			return deviceList;
 		}
 		int nrCam = Camera.getNumberOfCameras();
@@ -170,7 +170,7 @@ class CameraHelper {
 				String devName = index + ":" + (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK ? "Back Camera" : "Front Camera");
 				deviceList.add(devName);
 			} catch (Exception e) {
-				Log.e(TAG, "Failed to get camera info: " + e.toString());
+				Log.e(TAG, "Failed to get camera info: " + e);
 			}
 		}
 		return deviceList;
@@ -181,8 +181,24 @@ class CameraHelper {
 		mTargetHeight = height;
 	}
 
+	// Nobody else can use the camera until we release it, including ourselves the next time.
+	private void releaseCamera() {
+		if (mCamera != null) {
+			try {
+				mCamera.setPreviewCallback(null);
+				mCamera.stopPreview();
+			} catch (Exception e) {
+				Log.e(TAG, "Exception stopping the preview: " + e);
+			}
+			mCamera.release();
+			mCamera = null;
+		}
+	}
+
 	void startCamera() {
 		try {
+			// In case of a second start without a stop.
+			releaseCamera();
 			int cameraId = NativeApp.getSelectedCamera();
 			Log.d(TAG, "startCamera [id=" + cameraId + ", res=" + mTargetWidth + "x" + mTargetHeight + "]");
 
@@ -262,17 +278,17 @@ class CameraHelper {
 			mCamera.startPreview();
 			mIsCameraRunning = true;
 		} catch (Exception e) {
-			Log.e(TAG, "Cannot start camera: " + e.toString());
+			Log.e(TAG, "Cannot start camera: " + e);
+			// We may have gotten as far as opening it. mIsCameraRunning is still false, so pause()
+			// would never release it.
+			releaseCamera();
 		}
 	}
 
 	void pause() {
 		if (mIsCameraRunning && mCamera != null) {
 			Log.d(TAG, "pause");
-			mCamera.setPreviewCallback(null);
-			mCamera.stopPreview();
-			mCamera.release();
-			mCamera = null;
+			releaseCamera();
 		}
 	}
 

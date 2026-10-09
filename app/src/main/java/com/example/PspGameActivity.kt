@@ -7,7 +7,7 @@ import org.ppsspp.ppsspp.PpssppActivity
  *
  * Hereda de org.ppsspp.ppsspp.PpssppActivity, que:
  *  1. Carga la librería nativa del núcleo de emulación `libppsspp_jni.so`
- *     (PPSSPP v1.19.3 compilado desde fuente).
+ *     (núcleo PPSSPP compilado desde la fuente oficial (master pinneado por SHA)).
  *  2. Lee la ruta del juego desde el intent (data URI o extra
  *     "org.ppsspp.ppsspp.Shortcuts") y arranca el juego en el núcleo C++.
  *  3. Gestiona el render (GL/Vulkan), el audio (OpenSL ES), los controles

@@ -203,7 +203,7 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
         LogCategory.EMULATION,
         if (ok) "INFO" else "ERR",
         if (ok) {
-          "Boot: ${game.title} (${game.format}) — núcleo PPSSPP v1.19.3, ruta=$localPath"
+          "Boot: ${game.title} (${game.format}) — núcleo PPSSPP, ruta=$localPath"
         } else {
           "Fallo de arranque de ${game.title}: archivo no disponible en $localPath"
         }

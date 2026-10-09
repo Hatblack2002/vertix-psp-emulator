@@ -4,44 +4,77 @@ import android.content.Context;
 import android.graphics.*;
 import android.provider.Settings;
 import android.util.Log;
-import android.view.accessibility.AccessibilityManager;
+
+import androidx.annotation.Keep;
+
+import java.util.HashMap;
 
 public class TextRenderer {
-	private static Paint textPaint;
-	private static Paint bg;
-	private static Typeface robotoCondensed;
+	private static Paint textPaint = null;
+
+	private static final Paint bg;
 	private static final String TAG = "TextRenderer";
+
+	private static int idGen = 1;
+
+	private static final HashMap<java.lang.Integer, Typeface> fontMap = new HashMap<>();
+	// The native side asks again for every font each time graphics are brought up (every resume).
+	private static final HashMap<String, java.lang.Integer> fontIds = new HashMap<>();
 
 	private static boolean highContrastFontsEnabled = false;
 
 	static {
-		textPaint = new Paint(Paint.SUBPIXEL_TEXT_FLAG | Paint.ANTI_ALIAS_FLAG);
-		textPaint.setColor(Color.WHITE);
 		bg = new Paint();
 		bg.setColor(0);
 	}
 
-	public static void init(Context ctx) {
+	@Keep
+	public static int allocFont(Context ctx, String ttfFile) {
 		try {
-			robotoCondensed = Typeface.createFromAsset(ctx.getAssets(), "Roboto-Condensed.ttf");
-			if (robotoCondensed != null) {
-				Log.i(TAG, "Successfully loaded Roboto Condensed");
-				textPaint.setTypeface(robotoCondensed);
-			} else {
-				Log.e(TAG, "Failed to load Roboto Condensed");
+			java.lang.Integer existing = fontIds.get(ttfFile);
+			if (existing != null) {
+				return existing;
 			}
+			Typeface typeFace = Typeface.createFromAsset(ctx.getAssets(), ttfFile);
+			if (typeFace != null) {
+				Log.i(TAG, "Successfully loaded typeface from " + ttfFile);
+			} else {
+				Log.e(TAG, "Failed to load asset file " + ttfFile);
+			}
+			int id = idGen++;
+			fontMap.put(id, typeFace);
+			fontIds.put(ttfFile, id);
+			return id;
 		} catch (Exception e) {
 			Log.e(TAG, "Exception when loading typeface. shouldn't happen but is reported. We just fall back." + e);
+			return -1337;
+		}
+	}
+
+	@Keep
+	public static void freeAllFonts() {
+		fontMap.clear();
+		fontIds.clear();
+	}
+
+	public static void init(Context ctx) {
+		Log.i(TAG, "initializing TextDrawerAndroid java side");
+		// Called for every new activity. With OpenGL the emu thread lives on across those and may be
+		// drawing text with the paint right now, so don't swap it out from under it.
+		if (textPaint == null) {
+			textPaint = new Paint(Paint.SUBPIXEL_TEXT_FLAG | Paint.ANTI_ALIAS_FLAG);
+			textPaint.setColor(Color.WHITE);
 		}
 		highContrastFontsEnabled = Settings.Secure.getInt(ctx.getContentResolver(), "high_text_contrast_enabled", 0) == 1;
 	}
 
-	private static Point measureLine(String string, double textSize) {
-		textPaint.setTextSize((float) textSize);
+	private static Point measureLine(String string, int font, double textSize) {
+		textPaint.setTextSize((float)textSize);
 		int w = (int) textPaint.measureText(string);
 		// Round width up to even already here to avoid annoyances from odd-width 16-bit textures
 		// which OpenGL does not like - each line must be 4-byte aligned
-		w = (w + 5) & ~1;
+		w = (w + 1) & ~1;
+		w += 2;
 		int h = (int) (textPaint.descent() - textPaint.ascent() + 2.0f);
 		Point p = new Point();
 		p.x = w;
@@ -49,12 +82,12 @@ public class TextRenderer {
 		return p;
 	}
 
-	private static Point measure(String string, double textSize) {
+	private static Point measure(String string, int font, double textSize) {
 		String [] lines = string.replaceAll("\r", "").split("\n");
 		Point total = new Point();
 		total.x = 0;
 		for (String line : lines) {
-			Point sz = measureLine(line, textSize);
+			Point sz = measureLine(line, font, textSize);
 			total.x = Math.max(sz.x, total.x);
 		}
 		total.y = (int) (textPaint.descent() - textPaint.ascent()) * lines.length + 2;
@@ -72,22 +105,24 @@ public class TextRenderer {
 		return total;
 	}
 
-	public static int measureText(String string, double textSize) {
-		Point s = measure(string, textSize);
+	@Keep
+	public static int measureText(String string, int font, double textSize) {
+		textPaint.setTypeface(fontMap.get(font));
+		textPaint.setTextSize((float) textSize);
+		Point s = measure(string, font, textSize);
 		return (s.x << 16) | s.y;
 	}
 
-	public static int[] renderText(String string, double textSize) {
-		Point s = measure(string, textSize);
-
-		int w = s.x;
-		int h = s.y;
+	@Keep
+	public static int[] renderText(String string, int font, double textSize, int w, int h) {
+		textPaint.setTypeface(fontMap.get(font));
+		textPaint.setTextSize((float) textSize);
 
 		Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
 		Canvas canvas = new Canvas(bmp);
 		canvas.drawRect(0.0f, 0.0f, w, h, bg);
 
-		String lines[] = string.replaceAll("\\r", "").split("\n");
+		String [] lines = string.replaceAll("\\r", "").split("\n");
 		float y = 1.0f;
 
 		Path path = null;

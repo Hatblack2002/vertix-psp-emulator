@@ -40,7 +40,7 @@
         </activity>
 
         <!--
-          PspGameActivity: pantalla REAL de emulación (núcleo PPSSPP v1.19.3).
+          PspGameActivity: pantalla REAL de emulación (núcleo PPSSPP).
           Extiende org.ppsspp.ppsspp.PpssppActivity, que carga libppsspp_jni.so,
           recibe la ruta del juego vía intent-data y delega en el núcleo nativo.
           Landscape: los juegos de PSP son horizontales (480x272) — modo película.
@@ -49,10 +49,41 @@
             android:name=".PspGameActivity"
             android:exported="false"
             android:label="VERTIX"
-            android:launchMode="singleTop"
+            android:launchMode="singleInstance"
             android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="true"
             android:theme="@style/ppsspp_style"
-            android:configChanges="locale|keyboard|keyboardHidden|navigation|uiMode|orientation|screenSize|screenLayout|smallestScreenSize|density" />
+            android:configChanges="locale|keyboard|keyboardHidden|navigation|uiMode|orientation|screenSize|screenLayout|smallestScreenSize|density">
+            <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY" android:value="true" />
+        </activity>
+
+        <!-- Actividades puente del núcleo PPSSPP (selectores de archivos del sistema). -->
+        <activity
+            android:name="org.ppsspp.ppsspp.ShortcutActivity"
+            android:label="@string/shortcut_name"
+            android:exported="true">
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT" />
+                <action android:name="android.intent.action.CREATE_SHORTCUT" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="org.ppsspp.ppsspp.ImageResultProxyActivity"
+            android:theme="@style/Theme.ProxyTransparent"
+            android:launchMode="standard"
+            android:exported="false" />
+        <activity
+            android:name="org.ppsspp.ppsspp.DocumentResultProxyActivity"
+            android:theme="@style/Theme.ProxyTransparent"
+            android:launchMode="standard"
+            android:exported="false" />
+        <receiver
+            android:name="org.ppsspp.ppsspp.AchievementsHostOverrideReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="org.ppsspp.ppsspp.action.SET_ACHIEVEMENTS_HOST_OVERRIDE" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

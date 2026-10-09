@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.vertixpsp.xkqp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.1.0"
+    versionCode = 3
+    versionName = "1.2.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -126,8 +126,13 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
-  // Glue de PPSSPP: PpssppActivity usa DocumentFile para el bridge de SAF.
-  implementation("androidx.documentfile:documentfile:1.0.1")
+  // Glue del núcleo de emulación PPSSPP:
+  //  * PpssppActivity extiende AppCompatActivity y usa DocumentFile para SAF.
+  //  * org.ppsspp.proto.TombstoneProtos (generada con protoc --java_out=lite y
+  //    comprometida al repo) decodifica los informes de crasheo nativo.
+  implementation("androidx.appcompat:appcompat:1.7.1")
+  implementation("androidx.documentfile:documentfile:1.1.0")
+  implementation("com.google.protobuf:protobuf-javalite:4.35.1")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

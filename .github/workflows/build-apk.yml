@@ -4,8 +4,8 @@
 # Este workflow produce el APK con emulación de verdad:
 #
 #   Job 1 (build-native):
-#     1. Clona el código fuente oficial de PPSSPP (v1.19.3) con sus submódulos
-#        (ffmpeg, glslang, SPIRV-Cross, armips, miniupnp, zstd, lua...).
+#     1. Clona el código fuente oficial de PPSSPP (master pinneado por SHA) con
+#        sus submódulos (ffmpeg, glslang, SPIRV-Cross, armips, miniupnp, zstd...).
 #     2. Compila el núcleo nativo real `libppsspp_jni.so` con ndk-build para
 #        arm64-v8a y armeabi-v7a (CPU MIPS emulada, GPU GL/Vulkan, audio).
 #     3. Publica las librerías como artefacto.
@@ -39,9 +39,9 @@ on:
   workflow_dispatch:
     inputs:
       ppsspp_ref:
-        description: 'Ref de PPSSPP a compilar (tag/commit)'
+        description: 'Ref de PPSSPP a compilar (SHA/tag/branch)'
         required: true
-        default: 'v1.19.3'
+        default: '35e27933ff28bffcf1eadce0574569958d14c9b9'
 
 concurrency:
   group: build-apk-${{ github.ref }}
@@ -51,11 +51,11 @@ permissions:
   contents: read
 
 env:
-  PPSSPP_REF: ${{ github.event.inputs.ppsspp_ref || 'v1.19.3' }}
-  # NDK 21 es el que usa el propio PPSSPP (android/build.gradle: ndkVersion
-  # "21.4.7075529"). Los binarios precompilados de ffmpeg del submodule no son
-  # estrictamente PIC y el lld de NDK r25+ los rechaza al enlazar el .so.
-  NDK_VERSION: '21.4.7075529'
+  # PPSSPP master pinneado por SHA (ffmpeg precompilado regenerado 2026-07,
+  # compatible con lld de NDK moderno; la rama v1.19.3 usaba binarios no-PIC).
+  PPSSPP_REF: ${{ github.event.inputs.ppsspp_ref || '35e27933ff28bffcf1eadce0574569958d14c9b9' }}
+  # NDK 29 = el que fija el propio PPSSPP en android/build.gradle.kts.
+  NDK_VERSION: '29.0.14206865'
 
 jobs:
   # ===========================================================================

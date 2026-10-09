@@ -38,7 +38,7 @@ data class SaveStateSlot(
   val slotNumber: Int,
   val title: String,
   val timestamp: String,
-  val version: String = "PPSSPP v1.19.3"
+  val version: String = "PPSSPP"
 )
 
 data class PerformanceMetrics(

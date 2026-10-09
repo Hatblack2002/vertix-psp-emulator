@@ -5,8 +5,18 @@
 
     <!-- Estilo del núcleo de emulación PPSSPP: pantalla completa, sin barra de título. -->
     <color name="ppsspp_black">#FF000000</color>
-    <style name="ppsspp_style">
+    <style name="ppsspp_style" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowNoTitle">true</item>
+    </style>
+
+    <!-- Tema transparente para las actividades puente del núcleo PPSSPP. -->
+    <style name="Theme.ProxyTransparent" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
     </style>
 </resources>

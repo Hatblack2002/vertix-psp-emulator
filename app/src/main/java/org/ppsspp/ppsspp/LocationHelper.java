@@ -1,6 +1,5 @@
 package org.ppsspp.ppsspp;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.location.GnssStatus;
 import android.location.GpsSatellite;
@@ -13,15 +12,19 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 
-import java.util.Iterator;
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 
 class LocationHelper implements LocationListener {
 	private static final String TAG = LocationHelper.class.getSimpleName();
 	private static final int GPGGA_ID_INDEX = 0;
 	private static final int GPGGA_HDOP_INDEX = 8;
 	private static final int GPGGA_ALTITUDE_INDEX = 9;
-	private LocationManager mLocationManager;
+	private final LocationManager mLocationManager;
 	private boolean mLocationEnable;
+	// What the game has asked for, which is what we go back to on resume.
+	private boolean mLocationWanted = false;
+	private boolean mPaused = false;
 	private GpsStatus.Listener mGpsStatusListener;
 	private GnssStatus.Callback mGnssStatusCallback;
 	private OnNmeaMessageListener mNmeaMessageListener;
@@ -35,6 +38,33 @@ class LocationHelper implements LocationListener {
 	}
 
 	void startLocationUpdates() {
+		mLocationWanted = true;
+		if (mPaused) {
+			Log.d(TAG, "startLocationUpdates: paused, deferring to resume");
+			return;
+		}
+		startListening();
+	}
+
+	void stopLocationUpdates() {
+		mLocationWanted = false;
+		stopListening();
+	}
+
+	// Don't keep the GPS going while we're in the background. The game isn't running to see it anyway.
+	void pause() {
+		mPaused = true;
+		stopListening();
+	}
+
+	void resume() {
+		mPaused = false;
+		if (mLocationWanted) {
+			startListening();
+		}
+	}
+
+	private void startListening() {
 		Log.d(TAG, "startLocationUpdates");
 		if (!mLocationEnable) {
 			boolean isGPSEnabled = false;
@@ -47,37 +77,22 @@ class LocationHelper implements LocationListener {
 				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
 					mGnssStatusCallback = new GnssStatus.Callback() {
 						@Override
-						public void onSatelliteStatusChanged(GnssStatus status) {
+						public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
 							onSatelliteStatus(status);
 						}
 					};
 					mLocationManager.registerGnssStatusCallback(mGnssStatusCallback);
-					mNmeaMessageListener = new OnNmeaMessageListener() {
-						@Override
-						public void onNmeaMessage(String message, long timestamp) {
-							onNmea(message);
-						}
-					};
+					mNmeaMessageListener = (message, timestamp) -> onNmea(message);
 					mLocationManager.addNmeaListener(mNmeaMessageListener);
 				} else {
-					mGpsStatusListener = new GpsStatus.Listener() {
-						@Override
-						public void onGpsStatusChanged(int event) {
-							onGpsStatus(event);
-						}
-					};
+					mGpsStatusListener = this::onGpsStatus;
 					mLocationManager.addGpsStatusListener(mGpsStatusListener);
-					mNmeaListener = new GpsStatus.NmeaListener() {
-						@Override
-						public void onNmeaReceived(long timestamp, String nmea) {
-							onNmea(nmea);
-						}
-					};
+					mNmeaListener = (timestamp, nmea) -> onNmea(nmea);
 					mLocationManager.addNmeaListener(mNmeaListener);
 				}
 				mLocationEnable = true;
 			} catch (SecurityException e) {
-				Log.e(TAG, "Cannot start location updates: " + e.toString());
+				Log.e(TAG, "Cannot start location updates: " + e);
 			}
 			if (!isGPSEnabled && !isNetworkEnabled) {
 				Log.i(TAG, "No location provider found");
@@ -86,7 +101,7 @@ class LocationHelper implements LocationListener {
 		}
 	}
 
-	void stopLocationUpdates() {
+	private void stopListening() {
 		Log.d(TAG, "stopLocationUpdates");
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
 			if (mGnssStatusCallback != null) {
@@ -134,16 +149,14 @@ class LocationHelper implements LocationListener {
 	}
 
 	@Override
-	public void onProviderEnabled(String provider) {
+	public void onProviderEnabled(@NonNull String provider) {
 	}
 
 	@Override
-	public void onProviderDisabled(String provider) {
+	public void onProviderDisabled(@NonNull String provider) {
 	}
 
-
-
-	@TargetApi(Build.VERSION_CODES.N)
+	@RequiresApi(Build.VERSION_CODES.N)
 	private void onSatelliteStatus(GnssStatus status) {
 		short index = 0;
 		for (short i = 0; i < status.getSatelliteCount(); i++) {
@@ -159,6 +172,7 @@ class LocationHelper implements LocationListener {
 		}
 	}
 
+	@SuppressWarnings("deprecation")
 	private void onGpsStatus(int event) {
 		switch (event) {
 			case GpsStatus.GPS_EVENT_STARTED:
@@ -168,11 +182,11 @@ class LocationHelper implements LocationListener {
 			case GpsStatus.GPS_EVENT_SATELLITE_STATUS: {
 				try {
 					GpsStatus gpsStatus = mLocationManager.getGpsStatus(null);
+					if (gpsStatus == null) return;
 					Iterable<GpsSatellite> satellites = gpsStatus.getSatellites();
 
 					short index = 0;
-					for (Iterator<GpsSatellite> iterator = satellites.iterator(); iterator.hasNext(); ) {
-						GpsSatellite satellite = iterator.next();
+					for (GpsSatellite satellite : satellites) {
 						if (satellite.getPrn() > 37) {
 							continue;
 						}
@@ -197,10 +211,18 @@ class LocationHelper implements LocationListener {
 			return;
 		}
 		if (!tokens[GPGGA_HDOP_INDEX].isEmpty()) {
-			mHdop = Float.valueOf(tokens[GPGGA_HDOP_INDEX]);
+			try {
+				mHdop = Float.parseFloat(tokens[GPGGA_HDOP_INDEX]);
+			} catch (NumberFormatException e) {
+				// Ignore
+			}
 		}
 		if (!tokens[GPGGA_ALTITUDE_INDEX].isEmpty()) {
-			mAltitudeAboveSeaLevel = Float.valueOf(tokens[GPGGA_ALTITUDE_INDEX]);
+			try {
+				mAltitudeAboveSeaLevel = Float.parseFloat(tokens[GPGGA_ALTITUDE_INDEX]);
+			} catch (NumberFormatException e) {
+				// Ignore
+			}
 		}
 	}
 }
