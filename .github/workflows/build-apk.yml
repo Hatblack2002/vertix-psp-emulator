@@ -11,7 +11,8 @@
 #
 # Requisitos del runner:
 #   - Ubuntu 22.04 (ubuntu-latest)
-#   - Java 17 (requerido por AGP 9.x)
+#   - Java 21 (AGP 9.x pide 17+, pero Robolectric exige 21 para el sandbox
+#     de SDK 36 / Android 16 — ver DefaultSdkProvider.verifySupportedSdk)
 #   - Android SDK 36 + NDK 27 + CMake 3.22.1
 # =============================================================================
 
@@ -71,11 +72,11 @@ jobs:
           # submodules: recursive
           # token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Configurar JDK 17
+      - name: Configurar JDK 21 (Robolectric SDK 36 exige Java 21)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
           cache: 'gradle'
 
       # -------------------------------------------------------------------------
@@ -260,11 +261,11 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Configurar JDK 17
+      - name: Configurar JDK 21 (lint)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
           cache: 'gradle'
 
       - name: Aceptar licencias SDK e instalar componentes (lint)
