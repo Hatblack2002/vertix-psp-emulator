@@ -127,10 +127,12 @@ target_link_options(vertix_core
         -Wl,-z,now
 )
 
-# Conserva la tabla de símbolos solo en Debug (liberación más liviana).
-if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_link_options(vertix_core PRIVATE -Wl,--no-strip)
-endif()
+# Nota sobre símbolos de debug:
+#   En Debug, CMake NO pasa -s/--strip al linker, así que la tabla de símbolos
+#   se conserva automáticamente. En Release, CMake añade -s automáticamente.
+#   No añadimos -Wl,--no-strip porque lld (el linker del NDK) no lo soporta.
+#   Para forzar conservar símbolos en Release, usar:
+#     target_link_options(vertix_core PRIVATE -Wl,--export-dynamic)
 
 # ---------------------------------------------------------------------------
 # Mensaje informativo para el log de compilación.
