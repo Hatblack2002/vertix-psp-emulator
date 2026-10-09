@@ -19,3 +19,26 @@ debug.keystore
 debug.keystore.base64
 .build-outputs/
 .aistudio/
+
+# --- PPSSPP integration ------------------------------------------------------
+# El core de PPSSPP se clona bajo third_party/ desde scripts/prepare-ppsspp.sh
+# o desde el workflow integrate-ppsspp-core.yml. NO se commitea al repo.
+/third_party/
+/app/src/main/cpp/prebuilt/
+/app/src/main/jniLibs/
+
+# --- Artefactos nativos compilados ------------------------------------------
+*.so
+*.a
+!app/src/main/cpp/prebuilt/**/*.a
+!app/src/main/cpp/prebuilt/**/*.so
+
+# --- Secretos y tokens ------------------------------------------------------
+# Protección adicional: nunca subir archivos con tokens, keystores o creds.
+*token*
+*secret*
+*.keystore
+*.jks
+!debug.keystore
+secrets.env
+.github/secrets.env

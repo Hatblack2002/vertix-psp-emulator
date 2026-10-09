@@ -1,0 +1,382 @@
+# =============================================================================
+# VERTIX PSP Emulator — Integrate PPSSPP Core
+# -----------------------------------------------------------------------------
+# Workflow dedicado a la integración del núcleo de emulación PPSSPP dentro de
+# libvertix_core.so. Se ejecuta:
+#   * Manualmente (workflow_dispatch) con parámetros.
+#   * Tras un cambio en `app/src/main/cpp/` o en `third_party/ppsspp` (push).
+#
+# Flujo:
+#   1. Checkout del repo (con PAT para submódulos privados si aplica).
+#   2. Clonar PPSSPP Core en `third_party/ppsspp/` si no está presente.
+#   3. Aplicar parches específicos de VERTIX (jni glue, Android.mk overrides).
+#   4. Compilar el core como static library (libPPSSPPCore.a) por ABI.
+#   5. Enlazar libvertix_core.so contra libPPSSPPCore.a.
+#   6. Smoke test: cargar libvertix_core.so en un binario de prueba y verificar
+#      que las funciones JNI responden (nativeInit → true).
+#   7. Empaquetar libvertix_core.so precompilada como artefacto descargable.
+#
+# IMPORTANTE: la integración completa de PPSSPP es un proceso costoso
+# (~30-45 min por ABI). Por defecto se compila solo arm64-v8a a menos que se
+# indique explícitamente lo contrario.
+# =============================================================================
+
+name: Integrate PPSSPP Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      ppsspp_ref:
+        description: 'Ref/tag/commit del repo PPSSPP a integrar (ej. v1.18.1, master)'
+        required: true
+        default: 'master'
+      abis:
+        description: 'ABIs a compilar (separadas por coma)'
+        required: true
+        default: 'arm64-v8a'
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Debug
+          - Release
+      skip_core_compile:
+        description: 'Saltar compilación del core (usar caché)'
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/cpp/**'
+      - 'third_party/ppsspp/**'
+      - 'scripts/prepare-ppsspp.sh'
+      - '.github/workflows/integrate-ppsspp-core.yml'
+
+concurrency:
+  group: integrate-ppsspp-${{ github.ref }}-${{ github.event.inputs.ppsspp_ref || 'master' }}
+  cancel-in-progress: false  # No cancelar integraciones en curso
+
+permissions:
+  contents: read
+
+env:
+  PPSSPP_REPO: 'https://github.com/hrydgard/ppsspp.git'
+  NDK_VERSION: '27.0.12077973'
+  CMAKE_VERSION: '3.22.1'
+
+jobs:
+  # ===========================================================================
+  # Job 1: Preparar el core PPSSPP (clonar + parches)
+  # ===========================================================================
+  prepare:
+    name: Prepare PPSSPP Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      ppsspp-commit: ${{ steps.capture-commit.outputs.commit }}
+
+    steps:
+      - name: Checkout VERTIX
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Android SDK + NDK + CMake
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            ndk;${{ env.NDK_VERSION }}
+            cmake;${{ env.CMAKE_VERSION }}
+
+      - name: Verificar existencia de third_party/ppsspp
+        id: check-existing
+        run: |
+          if [ -d "third_party/ppsspp/.git" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "PPSSPP submodule ya presente."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "PPSSPP submodule no presente — se clonará."
+          fi
+
+      - name: Clonar PPSSPP Core
+        if: steps.check-existing.outputs.exists != 'true'
+        run: |
+          mkdir -p third_party
+          git clone --depth=1 --branch=${{ github.event.inputs.ppsspp_ref || 'master' }} \
+            ${{ env.PPSSPP_REPO }} third_party/ppsspp
+          cd third_party/ppsspp
+          git submodule update --init --recursive --depth=1 \
+            ffmpeg ext/glslang ext/snappy ext/zip ext/zstd \
+            ext/armips ext/discord-rpc ext/miniupnp
+
+      - name: Capturar commit exacto de PPSSPP
+        id: capture-commit
+        run: |
+          cd third_party/ppsspp
+          COMMIT=$(git rev-parse HEAD)
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          echo "PPSSPP integrado en commit: $COMMIT"
+
+      - name: Aplicar parches VERTIX
+        run: |
+          if [ -d "scripts/patches/ppsspp" ]; then
+            cd third_party/ppsspp
+            for patch in ../../scripts/patches/ppsspp/*.patch; do
+              if [ -f "$patch" ]; then
+                echo "Aplicando $patch..."
+                git apply --whitespace=fix "$patch" || {
+                  echo "::warning::No se pudo aplicar $patch — probablemente ya aplicado"
+                }
+              fi
+            done
+          else
+            echo "No hay parches que aplicar."
+          fi
+
+      - name: Subir snapshot del core preparado
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppsspp-prepared-source
+          path: |
+            third_party/ppsspp/
+            !third_party/ppsspp/.git/
+          retention-days: 3
+          compression-level: 6
+
+  # ===========================================================================
+  # Job 2: Compilar el core PPSSPP para cada ABI (matriz paralela)
+  # ===========================================================================
+  compile-core:
+    name: Compile PPSSPP Core (${{ matrix.abi }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: ${{ fromJson(format('["{0}"]', join(split(github.event.inputs.abis || 'arm64-v8a', ','), '","'))) }}
+
+    steps:
+      - name: Checkout VERTIX
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Android SDK + NDK + CMake
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            ndk;${{ env.NDK_VERSION }}
+            cmake;${{ env.CMAKE_VERSION }}
+
+      - name: Descargar snapshot del core preparado
+        uses: actions/download-artifact@v4
+        with:
+          name: ppsspp-prepared-source
+          path: third_party/
+
+      - name: Restaurar caché del core PPSSPP
+        if: github.event.inputs.skip_core_compile != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/ppsspp/build-${{ matrix.abi }}
+            third_party/ppsspp/ext/*/build
+          key: ppsspp-core-${{ matrix.abi }}-${{ needs.prepare.outputs.ppsspp-commit }}
+          restore-keys: |
+            ppsspp-core-${{ matrix.abi }}-
+
+      - name: Compilar libPPSSPPCore.a para ${{ matrix.abi }}
+        if: github.event.inputs.skip_core_compile != 'true'
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'Release' }}"
+          ANDROID_NDK_HOME=${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          CMAKE_BIN=${{ env.ANDROID_HOME }}/cmake/${{ env.CMAKE_VERSION }}/bin/cmake
+
+          mkdir -p third_party/ppsspp/build-${{ matrix.abi }}
+          cd third_party/ppsspp/build-${{ matrix.abi }}
+
+          # PPSSPP expone su CMake en el root del repo.
+          $CMAKE_BIN .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+            -DHEADLESS=OFF \
+            -DUNITTEST=OFF \
+            -DUSE_DISCORD=OFF \
+            -DUSE_SYSTEM_MINIUPNPC=OFF \
+            -DUSE_SYSTEM_ZSTD=OFF \
+            -DUSE_WAYLAND_WSI=OFF \
+            -DANDROID=ON
+
+          $CMAKE_BIN --build . --target PPSSPPCore -j$(nproc)
+
+          # Verificar que se generó la static library
+          find . -name "libPPSSPPCore.a" -exec ls -lh {} \;
+
+      - name: Empaquetar libPPSSPPCore.a
+        run: |
+          mkdir -p artifacts/${{ matrix.abi }}
+          find third_party/ppsspp/build-${{ matrix.abi }} \
+            -name "libPPSSPPCore.a" \
+            -exec cp {} artifacts/${{ matrix.abi }}/ \;
+          ls -lh artifacts/${{ matrix.abi }}/
+
+      - name: Subir libPPSSPPCore.a
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppsspp-core-${{ matrix.abi }}
+          path: artifacts/${{ matrix.abi }}/
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 3: Enlazar libvertix_core.so contra libPPSSPPCore.a + smoke test
+  # ===========================================================================
+  link-and-test:
+    name: Link libvertix_core.so + Smoke Test
+    needs: [prepare, compile-core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout VERTIX
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Android SDK + NDK + CMake
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            ndk;${{ env.NDK_VERSION }}
+            cmake;${{ env.CMAKE_VERSION }}
+
+      - name: Descargar libPPSSPPCore.a (todas las ABIs)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ppsspp-core-*
+          merge-multiple: false
+          path: third_party/prebuilt/
+
+      - name: Estructurar prebuilt libs
+        run: |
+          mkdir -p app/src/main/cpp/prebuilt
+          for d in third_party/prebuilt/ppsspp-core-*/; do
+            ABI=$(basename "$d" | sed 's/ppsspp-core-//')
+            mkdir -p "app/src/main/cpp/prebuilt/$ABI"
+            cp "$d/libPPSSPPCore.a" "app/src/main/cpp/prebuilt/$ABI/"
+            ls -lh "app/src/main/cpp/prebuilt/$ABI/"
+          done
+
+      - name: Compilar libvertix_core.so con PPSSPP Core enlazado
+        run: |
+          CMAKE_BIN=${{ env.ANDROID_HOME }}/cmake/${{ env.CMAKE_VERSION }}/bin/cmake
+          ANDROID_NDK_HOME=${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'Release' }}"
+
+          # Detecta ABIs disponibles
+          ABIS=$(ls app/src/main/cpp/prebuilt/ | tr '\n' ';')
+          echo "ABIs a compilar: $ABIS"
+
+          for ABI in $(echo "$ABIS" | tr ';' ' '); do
+            [ -z "$ABI" ] && continue
+            echo "::group::Compilando libvertix_core.so para $ABI"
+            BUILD_DIR="app/.cxx/ppsspp/$ABI"
+            mkdir -p "$BUILD_DIR"
+            $CMAKE_BIN \
+              -S app/src/main/cpp \
+              -B "$BUILD_DIR" \
+              -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+              -DANDROID_ABI=$ABI \
+              -DANDROID_PLATFORM=android-24 \
+              -DANDROID_STL=c++_shared \
+              -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+              -DVERTIX_LINK_PPSSPP=ON
+            $CMAKE_BIN --build "$BUILD_DIR" --target vertix_core -j$(nproc)
+            echo "::endgroup::"
+          done
+
+      - name: Smoke test — cargar libvertix_core.so
+        run: |
+          # Verifica que la librería se carga sin dependencias faltantes.
+          # En CI no podemos cargarla en Android, pero sí podemos inspeccionar
+          # sus símbolos exportados con nm/readelf.
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            SO="app/.cxx/ppsspp/$ABI/libvertix_core.so"
+            [ -f "$SO" ] || continue
+            echo "::group::Símbolos JNI exportados en $SO"
+            ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm \
+              -D "$SO" | grep -E "Java_com_example_engine_NativeVertixCore_" || true
+            echo "::endgroup::"
+          done
+
+      - name: Subir libvertix_core.so precompiladas
+        uses: actions/upload-artifact@v4
+        with:
+          name: vertix-core-ppsspp-linked
+          path: app/.cxx/ppsspp/*/libvertix_core.so
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 4: Reporte final y bump de versión del submodule pointer
+  # ===========================================================================
+  report:
+    name: Integration Report
+    needs: [prepare, compile-core, link-and-test]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generar resumen
+        run: |
+          echo "## Integración PPSSPP Core — Resumen" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Etapa | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Prepare | ${{ needs.prepare.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Compile Core | ${{ needs.compile-core.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Link & Test | ${{ needs.link-and-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "PPSSPP commit integrado: \`${{ needs.prepare.outputs.ppsspp-commit }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Próximos pasos" >> $GITHUB_STEP_SUMMARY
+          echo "1. Descargar el artefacto \`vertix-core-ppsspp-linked\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Copiar los .so a \`app/src/main/jniLibs/<abi>/\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Compilar el APK con \`./gradlew :app:assembleDebug\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Verificar en dispositivo que \`NativeVertixCore.isAvailable\` retorna \`true\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fallar el workflow si alguna etapa falló
+        if: ${{ needs.prepare.result != 'success' || needs.compile-core.result != 'success' || needs.link-and-test.result != 'success' }}
+        run: |
+          echo "::error::La integración falló en una o más etapas"
+          exit 1

@@ -199,7 +199,9 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
               onCloseQuickMenu = { viewModel.closeQuickMenu() },
               onSaveState = { viewModel.saveState() },
               onLoadState = { viewModel.loadState() },
-              onExitGame = { viewModel.stopGame() }
+              onExitGame = { viewModel.stopGame() },
+              onButtonInput = { mask, isPressed -> viewModel.onButtonInput(mask, isPressed) },
+              onAnalogInput = { x, y -> viewModel.onAnalogInput(x, y) }
             )
           }
         }

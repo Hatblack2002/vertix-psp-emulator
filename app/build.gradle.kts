@@ -20,6 +20,37 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // ---------------------------------------------------------------------------
+    // NDK / CMake — núcleo nativo libvertix_core.so
+    // (DOCUMENTACION.md, Sección 6)
+    //
+    // Compila `app/src/main/cpp/CMakeLists.txt` y empaqueta libvertix_core.so
+    // para los ABIs modernos de Android. arm64-v8a es el principal (todos los
+    // dispositivos desde 2019); armeabi-v7a da cobertura a tablets antiguas;
+    // x86_64 habilita el emulador de Android Studio.
+    // ---------------------------------------------------------------------------
+    ndk {
+      abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+    }
+    externalNativeBuild {
+      cmake {
+        cppFlags += "-std=c++17 -O3 -fvisibility=hidden -ffunction-sections -fdata-sections"
+        arguments += "-DANDROID_STL=c++_shared"
+        arguments += "-DANDROID_PLATFORM=android-24"
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Configuración del build nativo CMake.
+  // El path apunta al CMakeLists.txt del núcleo C++ (vertix_core_jni.cpp).
+  // ---------------------------------------------------------------------------
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,

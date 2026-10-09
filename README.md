@@ -14,6 +14,16 @@
   <img src="https://img.shields.io/badge/Language-Kotlin-purple.svg" alt="Kotlin" />
   <img src="https://img.shields.io/badge/UI-Jetpack_Compose_M3-00E5FF.svg" alt="Compose" />
   <img src="https://img.shields.io/badge/Architecture-MVVM_%2B_JNI_Ready-7B3DFF.svg" alt="Architecture" />
+  <img src="https://img.shields.io/badge/Core-C%2B%2B17_NDK_27-FF647C.svg" alt="Native Core" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/build-apk.yml">
+    <img src="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/build-apk.yml/badge.svg" alt="Build APK" />
+  </a>
+  <a href="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/integrate-ppsspp-core.yml">
+    <img src="https://github.com/Hatblack2002/vertix-psp-emulator/actions/workflows/integrate-ppsspp-core.yml/badge.svg" alt="Integrate PPSSPP Core" />
+  </a>
 </p>
 
 ---
@@ -92,6 +102,50 @@ El APK compilado se genera en:
 ## Integración con el Motor C++ (PPSSPP Core)
 
 El proyecto incluye la interfaz JNI `NativeVertixCore` lista para vincular con cualquier biblioteca nativa `libvertix_core.so` compilada mediante el NDK de Android. Consulta el archivo [DOCUMENTACION.md](DOCUMENTACION.md) para ver la especificación completa de las funciones C++ requeridas y la guía de integración.
+
+### Integración del PPSSPP Core real
+
+Para reemplazar el núcleo de scaffolding por el motor de emulación PPSSPP real:
+
+```bash
+# 1. Clona y compila el core PPSSPP para tu ABI (≈30 min)
+scripts/prepare-ppsspp.sh v1.18.1 arm64-v8a
+
+# 2. Compila VERTIX con el flag VERTIX_LINK_PPSSPP=ON
+./gradlew :app:assembleDebug \
+  -PcmakeArgs="-DVERTIX_LINK_PPSSPP=ON"
+```
+
+Alternativamente, ejecuta el workflow `Integrate PPSSPP Core` desde la pestaña **Actions** del repo en GitHub:
+
+1. Ve a **Actions → Integrate PPSSPP Core → Run workflow**.
+2. Indica el ref (`master`, `v1.18.1`, etc.) y las ABIs.
+3. Espera ~60-90 minutos.
+4. Descarga el artefacto `vertix-core-ppsspp-linked`.
+5. Copia los `.so` a `app/src/main/jniLibs/<abi>/`.
+
+Para más detalle, consulta [`.github/SECRETS_SETUP.md`](.github/SECRETS_SETUP.md) y la documentación técnica [DOCUMENTACION.md](DOCUMENTACION.md).
+
+---
+
+## Continuous Integration
+
+El proyecto incluye dos workflows de GitHub Actions:
+
+| Workflow | Disparador | Propósito |
+|---|---|---|
+| [`build-apk.yml`](.github/workflows/build-apk.yml) | `push` a main/develop, `pull_request`, manual | Compila `libvertix_core.so` (CMake) + APK debug/release, ejecuta tests unitarios y sube el APK como artefacto. Actúa como **gate de calidad** antes del merge a `main`. |
+| [`integrate-ppsspp-core.yml`](.github/workflows/integrate-ppsspp-core.yml) | Manual (`workflow_dispatch`), push a `cpp/` | Clona el repo PPSSPP, compila `libPPSSPPCore.a` por ABI, la enlaza contra `libvertix_core.so` y ejecuta un smoke test de los símbolos JNI exportados. |
+
+### Protección de rama `main`
+
+Recomendado: configurar **Branch Protection** en `Settings → Branches`:
+
+- ✅ Require status checks: `Build APK (debug)`
+- ✅ Require branches up to date before merging
+- ✅ Require conversation resolution
+
+Instrucciones detalladas en [`.github/SECRETS_SETUP.md`](.github/SECRETS_SETUP.md).
 
 ---
 

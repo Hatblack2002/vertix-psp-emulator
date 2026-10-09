@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.engine.VertixPspButtons
 import com.example.model.ControlSettings
 import com.example.model.PerformanceMetrics
 import com.example.model.PspGame
@@ -82,6 +84,15 @@ import com.example.ui.theme.VertixTextPrimary
 import com.example.ui.theme.VertixTextSecondary
 import kotlin.math.roundToInt
 
+/**
+ * Callbacks de entrada táctil hacia el núcleo nativo.
+ * - `onButtonInput(buttonMask, isPressed)`: botones digitales (D-Pad, △○✕□, L/R, START/SELECT).
+ * - `onAnalogInput(x, y)`: stick analógico normalizado [-1, 1] en cada eje.
+ *
+ * Implementación recomendada: `viewModel::onButtonInput` y `viewModel::onAnalogInput`,
+ * que a su vez invocan `engineService.setButtonState` / `setAnalogStick`, los cuales
+ * terminan llamando a `NativeVertixCore.nativeSendInput(buttonMask, analogX, analogY)`.
+ */
 @Composable
 fun GameRunningScreen(
   game: PspGame,
@@ -92,7 +103,9 @@ fun GameRunningScreen(
   onCloseQuickMenu: () -> Unit,
   onSaveState: () -> Unit,
   onLoadState: () -> Unit,
-  onExitGame: () -> Unit
+  onExitGame: () -> Unit,
+  onButtonInput: (Int, Boolean) -> Unit = { _, _ -> },
+  onAnalogInput: (Float, Float) -> Unit = { _, _ -> }
 ) {
   val view = LocalView.current
 
@@ -178,19 +191,27 @@ fun GameRunningScreen(
         // Shoulder Button L (Top Left)
         VirtualShoulderTrigger(
           label = "L",
+          buttonMask = VertixPspButtons.L_TRIGGER,
+          onButtonInput = { mask, pressed ->
+            triggerHaptic()
+            onButtonInput(mask, pressed)
+          },
           modifier = Modifier
             .align(Alignment.TopStart)
-            .padding(start = 16.dp, top = 8.dp),
-          onTouch = { triggerHaptic() }
+            .padding(start = 16.dp, top = 8.dp)
         )
 
         // Shoulder Button R (Top Right)
         VirtualShoulderTrigger(
           label = "R",
+          buttonMask = VertixPspButtons.R_TRIGGER,
+          onButtonInput = { mask, pressed ->
+            triggerHaptic()
+            onButtonInput(mask, pressed)
+          },
           modifier = Modifier
             .align(Alignment.TopEnd)
-            .padding(end = 16.dp, top = 8.dp),
-          onTouch = { triggerHaptic() }
+            .padding(end = 16.dp, top = 8.dp)
         )
 
         // Left Controls Cluster (D-Pad + Analog Stick)
@@ -201,11 +222,26 @@ fun GameRunningScreen(
           verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
           VirtualDPad(
-            onDirectionPress = { triggerHaptic() }
+            onDirectionChange = { direction, isPressed ->
+              triggerHaptic()
+              val mask = when (direction) {
+                "UP" -> VertixPspButtons.DPAD_UP
+                "DOWN" -> VertixPspButtons.DPAD_DOWN
+                "LEFT" -> VertixPspButtons.DPAD_LEFT
+                "RIGHT" -> VertixPspButtons.DPAD_RIGHT
+                else -> return@VirtualDPad
+              }
+              onButtonInput(mask, isPressed)
+            }
           )
 
           VirtualAnalogStick(
-            onMove = { triggerHaptic() }
+            onStickMove = { x, y ->
+              onAnalogInput(x, y)
+            },
+            onStickRelease = {
+              onAnalogInput(0f, 0f)
+            }
           )
         }
 
@@ -239,8 +275,17 @@ fun GameRunningScreen(
             )
           }
 
-          VirtualPillButton(label = "SELECT", onClick = { triggerHaptic() })
-          VirtualPillButton(label = "START", onClick = { triggerHaptic() })
+          VirtualPillButton(label = "SELECT", onClick = {
+            triggerHaptic()
+            // SELECT es un pulso: emitimos press + release inmediatos.
+            onButtonInput(VertixPspButtons.SELECT, true)
+            onButtonInput(VertixPspButtons.SELECT, false)
+          })
+          VirtualPillButton(label = "START", onClick = {
+            triggerHaptic()
+            onButtonInput(VertixPspButtons.START, true)
+            onButtonInput(VertixPspButtons.START, false)
+          })
         }
 
         // Right Controls Cluster (Action Buttons: △, ○, ✕, □)
@@ -250,7 +295,17 @@ fun GameRunningScreen(
             .padding(end = 16.dp, bottom = 32.dp)
         ) {
           VirtualActionButtonsDiamond(
-            onTouchButton = { triggerHaptic() }
+            onButtonTouch = { symbol, isPressed ->
+              triggerHaptic()
+              val mask = when (symbol) {
+                "△" -> VertixPspButtons.TRIANGLE
+                "○" -> VertixPspButtons.CIRCLE
+                "✕" -> VertixPspButtons.CROSS
+                "□" -> VertixPspButtons.SQUARE
+                else -> return@VirtualActionButtonsDiamond
+              }
+              onButtonInput(mask, isPressed)
+            }
           )
         }
       }
@@ -366,11 +421,17 @@ fun GameRunningScreen(
 @Composable
 fun VirtualShoulderTrigger(
   label: String,
-  modifier: Modifier = Modifier,
-  onTouch: () -> Unit
+  buttonMask: Int,
+  onButtonInput: (Int, Boolean) -> Unit,
+  modifier: Modifier = Modifier
 ) {
   val interactionSource = remember { MutableInteractionSource() }
   val isPressed by interactionSource.collectIsPressedAsState()
+
+  // Emite el evento press/release al núcleo nativo en cada transición.
+  LaunchedEffect(isPressed) {
+    onButtonInput(buttonMask, isPressed)
+  }
 
   Box(
     modifier = modifier
@@ -383,7 +444,10 @@ fun VirtualShoulderTrigger(
         color = if (isPressed) VertixSecondary else Color.White.copy(alpha = 0.3f),
         shape = RoundedCornerShape(8.dp)
       )
-      .clickable(interactionSource = interactionSource, indication = null) { onTouch() },
+      .clickable(interactionSource = interactionSource, indication = null) {
+        // El LaunchedEffect(isPressed) se encarga de emitir los eventos reales;
+        // este clickable solo absorbe el tap para que el InteractionSource cambie.
+      },
     contentAlignment = Alignment.Center
   ) {
     Text(
@@ -398,7 +462,7 @@ fun VirtualShoulderTrigger(
 
 @Composable
 fun VirtualDPad(
-  onDirectionPress: () -> Unit
+  onDirectionChange: (String, Boolean) -> Unit
 ) {
   Box(
     modifier = Modifier.size(130.dp),
@@ -410,7 +474,7 @@ fun VirtualDPad(
       modifier = Modifier
         .align(Alignment.TopCenter)
         .size(42.dp),
-      onPress = onDirectionPress
+      onPressChange = { isPressed -> onDirectionChange("UP", isPressed) }
     )
     // Down
     DPadArrowButton(
@@ -418,7 +482,7 @@ fun VirtualDPad(
       modifier = Modifier
         .align(Alignment.BottomCenter)
         .size(42.dp),
-      onPress = onDirectionPress
+      onPressChange = { isPressed -> onDirectionChange("DOWN", isPressed) }
     )
     // Left
     DPadArrowButton(
@@ -426,7 +490,7 @@ fun VirtualDPad(
       modifier = Modifier
         .align(Alignment.CenterStart)
         .size(42.dp),
-      onPress = onDirectionPress
+      onPressChange = { isPressed -> onDirectionChange("LEFT", isPressed) }
     )
     // Right
     DPadArrowButton(
@@ -434,7 +498,7 @@ fun VirtualDPad(
       modifier = Modifier
         .align(Alignment.CenterEnd)
         .size(42.dp),
-      onPress = onDirectionPress
+      onPressChange = { isPressed -> onDirectionChange("RIGHT", isPressed) }
     )
     // Center circle
     Box(
@@ -451,10 +515,15 @@ fun VirtualDPad(
 fun DPadArrowButton(
   direction: String,
   modifier: Modifier = Modifier,
-  onPress: () -> Unit
+  onPressChange: (Boolean) -> Unit
 ) {
   val interactionSource = remember { MutableInteractionSource() }
   val isPressed by interactionSource.collectIsPressedAsState()
+
+  // Emite press/release al núcleo nativo.
+  LaunchedEffect(isPressed) {
+    onPressChange(isPressed)
+  }
 
   Box(
     modifier = modifier
@@ -465,7 +534,9 @@ fun DPadArrowButton(
         color = if (isPressed) VertixSecondary else Color.White.copy(alpha = 0.25f),
         shape = RoundedCornerShape(8.dp)
       )
-      .clickable(interactionSource = interactionSource, indication = null) { onPress() },
+      .clickable(interactionSource = interactionSource, indication = null) {
+        // El LaunchedEffect(isPressed) emite los eventos reales.
+      },
     contentAlignment = Alignment.Center
   ) {
     Canvas(modifier = Modifier.size(16.dp)) {
@@ -509,10 +580,22 @@ fun DPadArrowButton(
 
 @Composable
 fun VirtualAnalogStick(
-  onMove: () -> Unit
+  onStickMove: (Float, Float) -> Unit,
+  onStickRelease: () -> Unit
 ) {
   var stickOffset by remember { mutableStateOf(Offset.Zero) }
   val maxRadius = 36f
+
+  // Normaliza el offset a [-1, +1] y emite al núcleo nativo.
+  LaunchedEffect(stickOffset) {
+    if (stickOffset == Offset.Zero) {
+      onStickRelease()
+    } else {
+      val nx = stickOffset.x / maxRadius
+      val ny = stickOffset.y / maxRadius
+      onStickMove(nx.coerceIn(-1f, 1f), ny.coerceIn(-1f, 1f))
+    }
+  }
 
   Box(
     modifier = Modifier
@@ -522,7 +605,7 @@ fun VirtualAnalogStick(
       .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
       .pointerInput(Unit) {
         detectDragGestures(
-          onDragStart = { onMove() },
+          onDragStart = { /* LaunchedEffect(stickOffset) emitirá el primer valor. */ },
           onDragEnd = { stickOffset = Offset.Zero },
           onDragCancel = { stickOffset = Offset.Zero },
           onDrag = { change, dragAmount ->
@@ -553,7 +636,7 @@ fun VirtualAnalogStick(
 
 @Composable
 fun VirtualActionButtonsDiamond(
-  onTouchButton: () -> Unit
+  onButtonTouch: (String, Boolean) -> Unit
 ) {
   Box(
     modifier = Modifier.size(150.dp),
@@ -566,7 +649,7 @@ fun VirtualActionButtonsDiamond(
       modifier = Modifier
         .align(Alignment.TopCenter)
         .size(44.dp),
-      onClick = onTouchButton
+      onPressChange = { isPressed -> onButtonTouch("△", isPressed) }
     )
 
     // Circle ○ (Right)
@@ -576,7 +659,7 @@ fun VirtualActionButtonsDiamond(
       modifier = Modifier
         .align(Alignment.CenterEnd)
         .size(44.dp),
-      onClick = onTouchButton
+      onPressChange = { isPressed -> onButtonTouch("○", isPressed) }
     )
 
     // Cross ✕ (Bottom)
@@ -586,7 +669,7 @@ fun VirtualActionButtonsDiamond(
       modifier = Modifier
         .align(Alignment.BottomCenter)
         .size(44.dp),
-      onClick = onTouchButton
+      onPressChange = { isPressed -> onButtonTouch("✕", isPressed) }
     )
 
     // Square □ (Left)
@@ -596,7 +679,7 @@ fun VirtualActionButtonsDiamond(
       modifier = Modifier
         .align(Alignment.CenterStart)
         .size(44.dp),
-      onClick = onTouchButton
+      onPressChange = { isPressed -> onButtonTouch("□", isPressed) }
     )
   }
 }
@@ -606,10 +689,15 @@ fun ActionButton(
   symbol: String,
   symbolColor: Color,
   modifier: Modifier = Modifier,
-  onClick: () -> Unit
+  onPressChange: (Boolean) -> Unit
 ) {
   val interactionSource = remember { MutableInteractionSource() }
   val isPressed by interactionSource.collectIsPressedAsState()
+
+  // Emite press/release al núcleo nativo.
+  LaunchedEffect(isPressed) {
+    onPressChange(isPressed)
+  }
 
   Box(
     modifier = modifier
@@ -620,7 +708,9 @@ fun ActionButton(
         color = if (isPressed) VertixSecondary else Color.White.copy(alpha = 0.25f),
         shape = CircleShape
       )
-      .clickable(interactionSource = interactionSource, indication = null) { onClick() },
+      .clickable(interactionSource = interactionSource, indication = null) {
+        // El LaunchedEffect(isPressed) emite los eventos reales.
+      },
     contentAlignment = Alignment.Center
   ) {
     Text(

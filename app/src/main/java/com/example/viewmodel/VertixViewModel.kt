@@ -64,12 +64,17 @@ data class VertixUiState(
   val selectedLogCategory: LogCategory = LogCategory.ALL,
   val logSearchQuery: String = "",
   val toastNotification: String? = null,
-  val errorDialogMessage: String? = null
+  val errorDialogMessage: String? = null,
+  /** True cuando libvertix_core.so está cargada e inicializada. */
+  val nativeCoreActive: Boolean = false,
+  /** Contador absoluto de frames ejecutados por el núcleo nativo. */
+  val nativeFrameCounter: Long = 0L
 )
 
 class VertixViewModel(application: Application) : AndroidViewModel(application) {
   private val repository = GameRepository(application.applicationContext)
   private val engineService = VertixEngineService()
+  private val appContext = application.applicationContext
 
   private val _uiState = MutableStateFlow(VertixUiState())
   val uiState: StateFlow<VertixUiState> = _uiState.asStateFlow()
@@ -78,7 +83,25 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
     loadPersistedGames()
     initSystemLogs()
     startSplashSequence()
+    bootstrapNativeCore()
     startTelemetryMonitor()
+  }
+
+  /**
+   * Inicializa el núcleo nativo (libvertix_core.so) tan pronto como el
+   * ViewModel está listo. Si la librería no está cargada, se queda en modo
+   * simulado de forma transparente.
+   */
+  private fun bootstrapNativeCore() {
+    // Resolución interna por defecto: 2x (1080p) — coincide con GraphicSettings().
+    val ok = engineService.initialize(appContext, surfaceWidth = 960, surfaceHeight = 544)
+    _uiState.update { it.copy(nativeCoreActive = ok) }
+    addLog(
+      LogCategory.SYSTEM,
+      "INFO",
+      if (ok) "Núcleo nativo libvertix_core.so inicializado (backend C++ activo)"
+             else "Núcleo nativo no disponible — modo simulado JVM (libvertix_core.so no cargada)"
+    )
   }
 
   private fun loadPersistedGames() {
@@ -135,7 +158,9 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
               ramUsage = "${telemetry.memoryUsedMb} MB / ${telemetry.memoryTotalMb} MB",
               speedPercent = telemetry.emulationSpeedPercent
             ),
-            fpsHistory = newHistory
+            fpsHistory = newHistory,
+            nativeCoreActive = telemetry.nativeBackendActive,
+            nativeFrameCounter = telemetry.nativeFrameCounter
           )
         }
       }
@@ -195,16 +220,20 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
   }
 
   fun launchGame(game: PspGame) {
-    engineService.loadGame(game.filePath)
+    val ok = engineService.loadGame(game.filePath)
     _uiState.update {
       it.copy(
         selectedGame = game,
         isGameRunning = true,
         currentScreen = VertixScreen.GAME_RUNNING,
-        toastNotification = "Iniciando ${game.title}"
+        toastNotification = if (ok) "Iniciando ${game.title}" else "No se pudo cargar ${game.title}"
       )
     }
-    addLog(LogCategory.EMULATION, "INFO", "Núcleo ejecutando ROM: ${game.title} (${game.filePath})")
+    addLog(
+      LogCategory.EMULATION,
+      if (ok) "INFO" else "ERR",
+      "Núcleo ejecutando ROM: ${game.title} (${game.format}, ${game.size}) — uri=${game.filePath}"
+    )
   }
 
   fun toggleFavorite(gameId: String) {
@@ -319,6 +348,31 @@ class VertixViewModel(application: Application) : AndroidViewModel(application) 
         toastNotification = "Ajustes restablecidos"
       )
     }
+  }
+
+  // ===========================================================================
+  // Entrada táctil hacia el núcleo nativo.
+  // Llamados desde GameRunningScreen a través de MainActivity. Terminan en
+  // `NativeVertixCore.nativeSendInput(buttonMask, analogX, analogY)` cuando
+  // libvertix_core.so está cargada (Sección 5 de la documentación).
+  // ===========================================================================
+
+  /**
+   * Actualiza el estado de un botón digital del pad PSP y lo reenvía al
+   * núcleo nativo. [buttonMask] debe ser una de las constantes de
+   * `VertixPspButtons` (TRIANGLE, CIRCLE, CROSS, SQUARE, DPAD_*, L_TRIGGER,
+   * R_TRIGGER, START, SELECT).
+   */
+  fun onButtonInput(buttonMask: Int, isPressed: Boolean) {
+    engineService.setButtonState(buttonMask, isPressed)
+  }
+
+  /**
+   * Actualiza la posición del stick analógico virtual (normalizada [-1, 1])
+   * y la reenvía al núcleo nativo.
+   */
+  fun onAnalogInput(x: Float, y: Float) {
+    engineService.setAnalogStick(x, y)
   }
 
   private fun addLog(category: LogCategory, severity: String, message: String) {
