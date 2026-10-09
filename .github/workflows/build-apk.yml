@@ -102,6 +102,7 @@ jobs:
             NDK_PROJECT_PATH=. \
             NDK_APPLICATION_MK=jni/Application.mk \
             APP_BUILD_SCRIPT=jni/Android.mk \
+            NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
             APP_ABI=${{ matrix.abi }} \
             ppsspp_jni
           ls -lh libs/${{ matrix.abi }}/
