@@ -79,15 +79,27 @@ jobs:
           cache: 'gradle'
 
       # -------------------------------------------------------------------------
-      # SDK + NDK + CMake: usamos sdkmanager directamente con cada paquete como
-      # argumento separado. setup-android@v3 rompe con YAML multiline en el
-      # input `packages` (lo interpreta como un solo nombre con saltos de línea).
+      # SDK + NDK + CMake: invocamos sdkmanager por ruta completa.
+      # En ubuntu-latest, sdkmanager NO está en PATH; vive en
+      # $ANDROID_HOME/cmdline-tools/<version>/bin/sdkmanager (la versión cambia,
+      # era 16.0 en runners recientes). Lo localizamos dinámicamente.
       # -------------------------------------------------------------------------
       - name: Aceptar licencias SDK e instalar componentes
         run: |
           set -e
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install \
+          # Localizar sdkmanager (puede estar en cmdline-tools/latest o en una
+          # versión numerada). Tomamos el primero que encontremos.
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager no encontrado en $ANDROID_HOME/cmdline-tools"
+            ls -la "$ANDROID_HOME/cmdline-tools/" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Usando sdkmanager: $SDKMANAGER"
+          # Aceptar licencias (yes responde a todos los prompts).
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          # Instalar cada paquete como argumento separado.
+          "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-36" \
             "platforms;android-36;01" \
@@ -97,7 +109,7 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
-          # Verificación
+          # Verificación de que los componentes quedaron instalados.
           ls -la "$ANDROID_HOME/ndk/27.0.12077973/build/cmake/android.toolchain.cmake"
           ls -la "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
 
@@ -259,8 +271,13 @@ jobs:
       - name: Aceptar licencias SDK e instalar componentes (lint)
         run: |
           set -e
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install \
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager no encontrado"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-36" \
             "platforms;android-36;01" \
