@@ -183,18 +183,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: ppsspp-jni-*
-          path: app/src/main/jniLibs
+          path: native-libs
           merge-multiple: false
 
       - name: Colocar librerías nativas por ABI
         run: |
           set -e
-          # download-artifact crea ppsspp-jni-<abi>/{libppsspp_jni.so}
-          # Reorganiza a jniLibs/<abi>/libppsspp_jni.so
+          # download-artifact crea native-libs/ppsspp-jni-<abi>/libppsspp_jni.so.
+          # Se copian a jniLibs/<abi>/ (AGP exige que cada subdirectorio de
+          # jniLibs sea exactamente un ABI, por eso el download va fuera).
           mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/jniLibs/armeabi-v7a
-          find app/src/main/jniLibs -name "libppsspp_jni.so" -exec ls -lh {} \;
-          cp app/src/main/jniLibs/ppsspp-jni-arm64-v8a/libppsspp_jni.so app/src/main/jniLibs/arm64-v8a/
-          cp app/src/main/jniLibs/ppsspp-jni-armeabi-v7a/libppsspp_jni.so app/src/main/jniLibs/armeabi-v7a/
+          find native-libs -name "libppsspp_jni.so" -exec ls -lh {} \;
+          cp native-libs/ppsspp-jni-arm64-v8a/libppsspp_jni.so app/src/main/jniLibs/arm64-v8a/
+          cp native-libs/ppsspp-jni-armeabi-v7a/libppsspp_jni.so app/src/main/jniLibs/armeabi-v7a/
           ls -lh app/src/main/jniLibs/arm64-v8a app/src/main/jniLibs/armeabi-v7a
 
       - name: Compilar APK debug y ejecutar tests
