@@ -52,7 +52,10 @@ permissions:
 
 env:
   PPSSPP_REF: ${{ github.event.inputs.ppsspp_ref || 'v1.19.3' }}
-  NDK_VERSION: '27.2.12479018'
+  # NDK 21 es el que usa el propio PPSSPP (android/build.gradle: ndkVersion
+  # "21.4.7075529"). Los binarios precompilados de ffmpeg del submodule no son
+  # estrictamente PIC y el lld de NDK r25+ los rechaza al enlazar el .so.
+  NDK_VERSION: '21.4.7075529'
 
 jobs:
   # ===========================================================================
@@ -92,7 +95,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ppsspp/obj
-          key: ppsspp-obj-${{ matrix.abi }}-${{ env.PPSSPP_REF }}
+          key: ppsspp-obj-${{ matrix.abi }}-${{ env.PPSSPP_REF }}-ndk${{ env.NDK_VERSION }}
 
       - name: Compilar libppsspp_jni.so (${{ matrix.abi }})
         run: |
@@ -113,9 +116,8 @@ jobs:
           SO=${{ github.workspace }}/ppsspp/android/libs/${{ matrix.abi }}/libppsspp_jni.so
           test -f "$SO"
           ls -lh "$SO"
-          "$ANDROID_HOME/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D "$SO" \
-            | grep -c "Java_org_ppsspp_ppsspp_" || {
-              echo "::error::El .so no exporta el puente JNI de PPSSPP"; exit 1; }
+          readelf -Ws "$SO" | grep -c "Java_org_ppsspp_ppsspp_" || {
+            echo "::error::El .so no exporta el puente JNI de PPSSPP"; exit 1; }
 
       - name: Subir libppsspp_jni.so (${{ matrix.abi }})
         uses: actions/upload-artifact@v4
