@@ -102,7 +102,6 @@ jobs:
           "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-36" \
-            "platforms;android-36;01" \
             "build-tools;36.0.0" \
             "ndk;27.0.12077973" \
             "cmake;3.22.1"
@@ -280,7 +279,6 @@ jobs:
           "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-36" \
-            "platforms;android-36;01" \
             "build-tools;36.0.0"
 
       - name: Cache Gradle
