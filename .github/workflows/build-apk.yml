@@ -81,13 +81,14 @@ jobs:
           fi
           echo "NDKBIN=$ANDROID_HOME/ndk/${NDK_VERSION}/ndk-build" >> $GITHUB_ENV
 
-      - name: Clonar PPSSPP ${{ env.PPSSPP_REF }} con submódulos
+      - name: Clonar PPSSPP (${{ env.PPSSPP_REF }}) con submódulos
         run: |
           set -e
-          git clone --depth 1 --branch "${{ env.PPSSPP_REF }}" \
-            --recurse-submodules --shallow-submodules --jobs 4 \
+          git clone --filter=blob:none --no-checkout \
             https://github.com/hrydgard/ppsspp.git ${{ github.workspace }}/ppsspp
           cd ${{ github.workspace }}/ppsspp
+          git checkout ${{ env.PPSSPP_REF }}
+          git submodule update --init --recursive --depth 1 --jobs 4
           echo "PPSSPP commit: $(git rev-parse HEAD)"
           ls ffmpeg/android || true
 
