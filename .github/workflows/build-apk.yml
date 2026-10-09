@@ -101,15 +101,39 @@ jobs:
       - name: Compilar libppsspp_jni.so (${{ matrix.abi }})
         run: |
           set -e
+          ABI=${{ matrix.abi }}
+          echo "=== Recursos del runner ==="
+          df -h / | tail -1
+          free -h
+          # Swap extra: el enlazado del núcleo es el paso más pesado en RAM.
+          sudo fallocate -l 6G /swapfile || true
+          sudo chmod 600 /swapfile || true
+          sudo mkswap /swapfile || true
+          sudo swapon /swapfile || true
+          free -h
           cd ${{ github.workspace }}/ppsspp/android
-          "$NDKBIN" -j$(nproc) \
+          if ! "$NDKBIN" -j$(nproc) \
             NDK_PROJECT_PATH=. \
             NDK_APPLICATION_MK=jni/Application.mk \
             APP_BUILD_SCRIPT=jni/Android.mk \
             NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
-            APP_ABI=${{ matrix.abi }} \
-            ppsspp_jni
-          ls -lh libs/${{ matrix.abi }}/
+            APP_ABI=${ABI} \
+            ppsspp_jni; then
+            echo "::error::ndk-build falló — diagnóstico:"
+            df -h / | tail -1
+            free -h
+            sudo dmesg 2>/dev/null | tail -25 || true
+            echo "=== Último comando del enlace (dry-run) ==="
+            "$NDKBIN" -n \
+              NDK_PROJECT_PATH=. \
+              NDK_APPLICATION_MK=jni/Application.mk \
+              APP_BUILD_SCRIPT=jni/Android.mk \
+              NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
+              APP_ABI=${ABI} \
+              ppsspp_jni 2>&1 | tail -6 || true
+            exit 1
+          fi
+          ls -lh libs/${ABI}/
 
       - name: Verificar símbolos JNI exportados
         run: |
