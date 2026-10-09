@@ -112,27 +112,34 @@ jobs:
           sudo swapon /swapfile || true
           free -h
           cd ${{ github.workspace }}/ppsspp/android
-          if ! "$NDKBIN" -j$(nproc) \
+          echo "=== Comando de enlace que ejecutará make (dry-run, cola) ==="
+          "$NDKBIN" -n \
             NDK_PROJECT_PATH=. \
             NDK_APPLICATION_MK=jni/Application.mk \
             APP_BUILD_SCRIPT=jni/Android.mk \
             NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
             APP_ABI=${ABI} \
-            ppsspp_jni; then
+            ppsspp_jni 2>&1 | tail -6 || true
+          echo "=== ndk-build real ==="
+          "$NDKBIN" -j$(nproc) \
+            NDK_PROJECT_PATH=. \
+            NDK_APPLICATION_MK=jni/Application.mk \
+            APP_BUILD_SCRIPT=jni/Android.mk \
+            NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
+            APP_ABI=${ABI} \
+            ppsspp_jni || {
             echo "::error::ndk-build falló — diagnóstico:"
             df -h / | tail -1
             free -h
             sudo dmesg 2>/dev/null | tail -25 || true
-            echo "=== Último comando del enlace (dry-run) ==="
-            "$NDKBIN" -n \
-              NDK_PROJECT_PATH=. \
-              NDK_APPLICATION_MK=jni/Application.mk \
-              APP_BUILD_SCRIPT=jni/Android.mk \
-              NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
-              APP_ABI=${ABI} \
-              ppsspp_jni 2>&1 | tail -6 || true
             exit 1
-          fi
+          }
+          echo "=== Resultado ==="
+          ls -la obj/local/${ABI}/ 2>/dev/null | tail -6 || true
+          test -f libs/${ABI}/libppsspp_jni.so || {
+            echo "::error::ndk-build terminó 0 pero NO generó libs/${ABI}/libppsspp_jni.so"
+            exit 1
+          }
           ls -lh libs/${ABI}/
 
       - name: Verificar símbolos JNI exportados
