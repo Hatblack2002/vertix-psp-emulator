@@ -119,15 +119,14 @@ jobs:
             APP_BUILD_SCRIPT=jni/Android.mk \
             NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
             APP_ABI=${ABI} \
-            ppsspp_jni 2>&1 | tail -6 || true
+            2>&1 | tail -4 || true
           echo "=== ndk-build real ==="
           "$NDKBIN" -j$(nproc) \
             NDK_PROJECT_PATH=. \
             NDK_APPLICATION_MK=jni/Application.mk \
             APP_BUILD_SCRIPT=jni/Android.mk \
             NDK_MODULE_PATH=${{ github.workspace }}/ppsspp/ext \
-            APP_ABI=${ABI} \
-            ppsspp_jni || {
+            APP_ABI=${ABI} || {
             echo "::error::ndk-build falló — diagnóstico:"
             df -h / | tail -1
             free -h
