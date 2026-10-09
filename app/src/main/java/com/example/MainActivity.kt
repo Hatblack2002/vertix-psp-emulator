@@ -90,8 +90,34 @@ fun VertixApp(viewModel: VertixViewModel = viewModel()) {
     }
   }
 
+  /**
+   * Lanza el selector de documentos del sistema (SAF).
+   *
+   * Pasamos varios MIME types comunes para ISO/CSO/PBP y un fallback `*/*`
+   * porque la detección MIME de Android es inconsistente:
+   *   - Los .iso suelen detectarse como application/octet-stream o x-iso9660-image
+   *   - Los .cso no tienen MIME estándar y aparecen como octet-stream
+   *   - Los .pbp (PSP EBOOT) pueden aparecer como application/x-pbp o octet-stream
+   *   - Los .chd aparecen como octet-stream
+   *
+   * NO filtramos por application/zip ni exigimos validación ZIP: ISO, CSO, PBP
+   * y CHD son formatos binarios propios, no archivos ZIP. La aceptación final
+   * la decide GameRepository.importFromUri() validando la cabecera real del
+   * archivo (PspArtwork.looksLikeGame).
+   */
   fun triggerImport() {
-    openDocumentLauncher.launch(arrayOf("*/*"))
+    openDocumentLauncher.launch(
+      arrayOf(
+        "application/octet-stream",
+        "application/x-iso9660-image",
+        "application/x-pbp",
+        "application/x-cso",
+        "application/x-chd",
+        "application/iso",
+        "application/x-iso",
+        "*/*"
+      )
+    )
   }
 
   LaunchedEffect(uiState.toastNotification) {
